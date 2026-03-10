@@ -54,8 +54,12 @@ LA neighborhood context for your reference:
 - Pasadena: Rent $2.50-5.00/sqft, established community, Old Town foot traffic`;
 
 export function buildIntakeMessages(messages: { role: string; content: string }[]) {
+  // Anthropic requires the first message to be from the user.
+  // The initial greeting is display-only — drop any leading assistant turns.
+  const firstUserIdx = messages.findIndex((m) => m.role === "user");
+  const userMessages = firstUserIdx === -1 ? [] : messages.slice(firstUserIdx);
   return {
     system: INTAKE_SYSTEM_PROMPT,
-    messages,
+    messages: userMessages,
   };
 }
