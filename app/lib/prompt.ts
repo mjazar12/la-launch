@@ -48,6 +48,14 @@ const LA_DATA = `
 - Home Occupation Permit: home-based businesses, ~$100
 `;
 
+// Shared output format instruction prepended to every system prompt
+const JSON_OUTPUT_RULE = `OUTPUT FORMAT (non-negotiable):
+- Respond with a single raw JSON object. Nothing before it. Nothing after it.
+- Do NOT wrap in markdown code fences (no \`\`\`json or \`\`\`).
+- Within any JSON string value, represent line breaks as the two-character escape sequence \\n — never as a literal newline character. A literal newline inside a JSON string is a syntax error.
+
+`;
+
 function serializeFormData(formData: FormData): string {
   return JSON.stringify({
     businessName: formData.businessName,
@@ -70,12 +78,12 @@ function serializeFormData(formData: FormData): string {
 }
 
 export function buildQualityGatePrompt(formData: FormData): { system: string; user: string } {
-  const system = `You are the Input Quality Gatekeeper for an LA small-business plan generator.
+  const system = `${JSON_OUTPUT_RULE}You are the Input Quality Gatekeeper for an LA small-business plan generator.
 Your job is to review what the user has told you about their business and identify gaps
 that would reduce the quality of a market scan, business plan, 24-month financial model,
 or pitch deck.
 
-Return ONLY a valid JSON object matching this exact schema — no markdown, no preamble:
+Return a JSON object matching this exact schema (all integer fields default to 0 — replace with your actual values):
 {
   "readinessScore": "X/10 — [one sentence summary]",
   "missingInputs": {
@@ -106,14 +114,14 @@ export function buildMarketScanPrompt(
   formData: FormData,
   qualityGateOutput: object
 ): { system: string; user: string } {
-  const system = `You are the LA Market Scan & Feasibility Analyst for a first-time founder.
+  const system = `${JSON_OUTPUT_RULE}You are the LA Market Scan & Feasibility Analyst for a first-time founder.
 Use the user's business inputs to generate a market scan for launching this business in Los Angeles.
 Deliver a decision-ready report that is explicitly LA-grounded.
 
 You have access to the following LA data:
 ${LA_DATA}
 
-Return ONLY a valid JSON object matching this exact schema — no markdown, no preamble:
+Return a JSON object matching this exact schema (integer score fields must be integers 1–5 — the 0s below are placeholders):
 {
   "executiveSummary": ["bullet1", "bullet2", "bullet3", "bullet4", "bullet5"],
   "customerAndDemand": {
@@ -143,25 +151,25 @@ Return ONLY a valid JSON object matching this exact schema — no markdown, no p
     "toVerifyNext": "string"
   },
   "feasibilityScorecard": {
-    "demand": 3,
-    "competition": 3,
-    "opsComplexity": 3,
-    "capitalIntensity": 3,
-    "regulatoryRisk": 3,
-    "timelineRealism": 3,
+    "demand": 0,
+    "competition": 0,
+    "opsComplexity": 0,
+    "capitalIntensity": 0,
+    "regulatoryRisk": 0,
+    "timelineRealism": 0,
     "scorecardNotes": "string"
   },
   "next2WeeksActions": ["action1", "action2", "action3", "action4", "action5", "action6", "action7", "action8", "action9", "action10"]
 }
 
 Rules:
-- The feasibilityScorecard values must be integers 1–5 (not strings).
-- The executiveSummary must be exactly 5 string bullets about go/no-go, risks, and upside.
-- The next2WeeksActions must be exactly 10 concrete validation steps.
+- feasibilityScorecard values must be integers 1–5 (not strings, not 0).
+- executiveSummary must be exactly 5 string bullets about go/no-go, risks, and upside.
+- next2WeeksActions must be exactly 10 concrete validation steps.
 - Label all assumptions explicitly.
 - Avoid made-up statistics. Use directional reasoning.
 - Be specific about neighborhoods, rent ranges, and LA-specific programs.
-- breakevenEquation must embed actual numbers in this format: "Break-even = $[fixed_costs] ÷ (1 - [cogs_pct]%) = $[X]/month revenue needed". Do not use generic placeholders.`;
+- breakevenEquation must embed actual numbers: "Break-even = $[fixed_costs] ÷ (1 - [cogs_pct]%) = $[X]/month revenue needed". No generic placeholders.`;
 
   const user = `Business inputs:\n${serializeFormData(formData)}\n\nInput Quality Gate output:\n${JSON.stringify(qualityGateOutput, null, 2)}`;
 
@@ -172,13 +180,13 @@ export function buildBusinessPlanPrompt(
   formData: FormData,
   marketScanOutput: object
 ): { system: string; user: string } {
-  const system = `You are the LA Small Business Plan Builder.
+  const system = `${JSON_OUTPUT_RULE}You are the LA Small Business Plan Builder.
 Using the user inputs and the LA Market Scan output, write a complete business plan
 suitable for a lender, partner, or early investor.
 
-Return ONLY a valid JSON object matching this exact schema — no markdown, no preamble:
+Return a JSON object matching this exact schema:
 {
-  "executiveSummary": "EXACTLY 3 paragraphs separated by \\n\\n. Para 1: vision/opportunity. Para 2: strategy/differentiation. Para 3: risks/path forward. Do NOT start Para 1 with 'However.'",
+  "executiveSummary": "string — EXACTLY 3 paragraphs. Paragraph 1: vision/opportunity. Paragraph 2: strategy/differentiation. Paragraph 3: risks/path forward. Paragraphs are separated by the two-character sequence \\n\\n (backslash-n backslash-n). Para 1 must NOT start with 'However.'",
   "companyAndMission": "string",
   "productService": {
     "offerings": "string",
@@ -219,7 +227,7 @@ Return ONLY a valid JSON object matching this exact schema — no markdown, no p
 }
 
 Rules:
-- executiveSummary must be EXACTLY 3 paragraphs separated by \\n\\n. Para 1 must NOT start with "However."
+- executiveSummary: EXACTLY 3 paragraphs. Use \\n\\n (the escape sequence) between paragraphs — NOT literal newline characters. Para 1 must NOT start with "However."
 - risksAndMitigations must be exactly 8 items.
 - Include 2–4 fundingOptions most relevant to their situation.
 - Include all applicable permits for their business type.
@@ -227,8 +235,8 @@ Rules:
 - riskFactors must be exactly 3 items.
 - Tie all recommendations to the user's stated startup capital and timeline.
 - Be practical and specific to LA. No generic startup advice.
-- milestones.days0to30, days31to90, and days91to180 must each be arrays of 3–5 bullet strings (not plain strings).
-- Each risksAndMitigations trigger must be specific and measurable (e.g., "revenue below $X for 2 consecutive months"), not generic phrases like "if sales drop" or "if things go wrong".`;
+- milestones.days0to30, days31to90, and days91to180 must each be arrays of 3–5 bullet strings.
+- Each risksAndMitigations trigger must be specific and measurable (e.g., "revenue below $X for 2 consecutive months"), not generic phrases like "if sales drop".`;
 
   const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan output:\n${JSON.stringify(marketScanOutput, null, 2)}`;
 
@@ -240,11 +248,11 @@ export function buildFinancialModelPrompt(
   marketScanOutput: object,
   businessPlanOutput: object
 ): { system: string; user: string } {
-  const system = `You are the Financial Model Agent for a new LA small business.
+  const system = `${JSON_OUTPUT_RULE}You are the Financial Model Agent for a new LA small business.
 Based on the user inputs, LA Market Scan, and Business Plan, produce a
 spreadsheet-ready financial model the founder can paste into Excel or Google Sheets.
 
-Return ONLY a valid JSON object matching this exact schema — no markdown, no preamble:
+Return a JSON object matching this exact schema (all numeric fields are plain numbers — no dollar signs, no commas):
 {
   "modelOverview": ["bullet1", "bullet2", "bullet3", "bullet4", "bullet5"],
   "inputsTable": [
@@ -274,24 +282,37 @@ Return ONLY a valid JSON object matching this exact schema — no markdown, no p
   "dataPointsToCollect": ["string", "string", "string", "string", "string", "string", "string", "string"]
 }
 
-Rules:
-- monthlyPnL must have exactly 24 entries (month 1 through 24). The "month" field must be the integer month number.
-- cashRunway must have exactly 25 entries: month 0 (pre-opening) plus months 1 through 24. Month 0 uses fields: month, startingCash, startupCostDeploy (negative startup spend), endingCash. Months 1–24 use: month, startingCash, monthlyNetBurn, endingCash. NO runwayMonthsRemaining field.
-- Month 0: startingCash = user's budget integer, startupCostDeploy = negative startup spend integer, endingCash = Month 1 startingCash.
-- modelOverview must be exactly 5 bullet strings. Bullet 1 must state the COGS% chosen: "COGS = X% of revenue".
+MATH CONSISTENCY RULES (verify these before outputting):
+1. grossProfit = revenue - cogs (for every month, no exceptions)
+2. ebitda = grossProfit - opex (for every month, no exceptions)
+3. monthlyNetBurn = -ebitda (for every month, no exceptions)
+4. endingCash[month N] = startingCash[month N+1]
+5. Month 0 endingCash = user's budget minus startupCostDeploy
+6. COGS% must be one constant value applied identically across all 24 months
+7. estimatedBreakevenMonth = first month where ebitda > 0; summaryStats.monthsToBreakeven must match this integer
+
+Additional rules:
+- monthlyPnL must have exactly 24 entries (months 1–24).
+- cashRunway must have exactly 25 entries: month 0 (startup deploy) plus months 1–24.
+- Month 0 fields: month, startingCash, startupCostDeploy (negative integer), endingCash. No other fields.
+- Months 1–24 fields: month, startingCash, monthlyNetBurn, endingCash. No other fields.
+- modelOverview must be exactly 5 bullets. Bullet 1 must state: "COGS = X% of revenue".
 - dataPointsToCollect must be exactly 8 items.
 - Model a realistic ramp: months 1–3 are typically below breakeven.
 - Use the user's stated startup budget as starting cash balance.
-- Express all formulas in plain English.
-- Do not assume exact LA rent or labor costs unless provided — use placeholders.
-- COGS%: Choose one COGS% for the industry, state it in modelOverview bullet 1 as "COGS = X% of revenue", and apply it identically across all 24 months. Do NOT vary it month to month.
-- P&L and Burn reconciliation: monthlyNetBurn must equal the negative of ebitda for that month. grossProfit = revenue - cogs. ebitda = grossProfit - opex. No independent fabrication of numbers.
-- Breakeven definition: estimatedBreakevenMonth = first month where ebitda > 0. If month 1 is positive, set to 1. summaryStats.monthsToBreakeven must equal this integer.
-- OpEx decomposition: opex = fixed (rent + labor) + justified variable. Do NOT grow opex by a flat $1K/month.
-- All numeric fields are plain integers or floats — no dollar signs, no commas.
-- Scenarios ordering: conservative.breakevenMonth >= base.breakevenMonth >= aggressive.breakevenMonth; aggressive.yearOneRevenue > base.yearOneRevenue > conservative.yearOneRevenue.`;
+- Scenarios ordering: conservative.breakevenMonth >= base.breakevenMonth >= aggressive.breakevenMonth.
+- All numeric fields are plain integers or floats — no dollar signs, no commas.`;
 
-  const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan:\n${JSON.stringify(marketScanOutput, null, 2)}\n\nBusiness Plan:\n${JSON.stringify(businessPlanOutput, null, 2)}`;
+  // Pass a trimmed version of businessPlan to save tokens (financial fields only)
+  const bp = businessPlanOutput as Record<string, unknown>;
+  const businessPlanSummary = {
+    financialSummary: bp.financialSummary,
+    assumptions: bp.assumptions,
+    fundingOptions: bp.fundingOptions,
+    milestones: bp.milestones,
+  };
+
+  const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan:\n${JSON.stringify(marketScanOutput, null, 2)}\n\nBusiness Plan (financial summary):\n${JSON.stringify(businessPlanSummary, null, 2)}`;
 
   return { system, user };
 }
@@ -302,11 +323,11 @@ export function buildPitchDeckPrompt(
   businessPlanOutput: object,
   financialModelOutput: object
 ): { system: string; user: string } {
-  const system = `You are the Pitch Deck Agent for an LA small business.
+  const system = `${JSON_OUTPUT_RULE}You are the Pitch Deck Agent for an LA small business.
 Create a 10–12 slide pitch deck outline using all prior research and plan outputs.
 For each slide: a title, 3–6 bullet points (max 12 words per bullet), and 2–3 sentences of speaker notes.
 
-Return ONLY a valid JSON object matching this exact schema — no markdown, no preamble:
+Return a JSON object matching this exact schema:
 {
   "slides": [
     {
