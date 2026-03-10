@@ -412,11 +412,15 @@ function SectionCard({
   children,
   delay = 0,
   id,
+  open,
+  onToggle,
 }: {
   title: string;
   children: React.ReactNode;
   delay?: number;
   id?: string;
+  open: boolean;
+  onToggle: () => void;
 }) {
   return (
     <motion.div
@@ -426,8 +430,32 @@ function SectionCard({
       transition={{ duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] }}
       className="bg-charcoal border border-white/[0.08] rounded-2xl p-8 backdrop-blur-sm"
     >
-      <h2 className="font-playfair text-2xl text-gold mb-6">{title}</h2>
-      {children}
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <h2 className="font-playfair text-2xl text-gold">{title}</h2>
+        <motion.span
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: 0.25 }}
+          className="text-gold/40 text-lg ml-4 flex-shrink-0"
+        >
+          ▾
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mt-6">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -522,6 +550,26 @@ export default function Home() {
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const [showFullPnL, setShowFullPnL] = useState(false);
   const [showFullCashRunway, setShowFullCashRunway] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    "quality-gate": true,
+    "market-scan": false,
+    "business-plan": false,
+    "financial-model": false,
+    "pitch-deck": false,
+    "funding": false,
+    "permits": false,
+    "next-steps": true,
+    "risks": false,
+  });
+
+  function toggleSection(id: string) {
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function openAndScrollTo(id: string) {
+    setOpenSections((prev) => ({ ...prev, [id]: true }));
+    setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }), 50);
+  }
 
   // Cycle pipeline messages
   useEffect(() => {
@@ -615,7 +663,7 @@ export default function Home() {
     setChatInput("");
     setChatStreaming(true);
 
-    // Optimistically add empty assistant message
+    // Optimistically add empty assistant message (shows typing dots)
     setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
@@ -625,55 +673,21 @@ export default function Home() {
         body: JSON.stringify({ messages: newMessages }),
       });
 
-      if (!res.body) throw new Error("No body");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      const { message, formData: fd } = await res.json();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+      setChatMessages((prev) => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: message },
+      ]);
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") break;
-
-          if (payload.startsWith("[FORM_DATA]")) {
-            try {
-              const fd = JSON.parse(payload.slice(11));
-              setExtractedFormData(fd);
-            } catch { /* ignore */ }
-            continue;
-          }
-
-          let parsed: { token?: string };
-          try { parsed = JSON.parse(payload); } catch { continue; }
-          if (parsed.token) {
-            setChatMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                ...updated[updated.length - 1],
-                content: updated[updated.length - 1].content + parsed.token,
-              };
-              return updated;
-            });
-          }
-        }
-      }
+      if (fd) setExtractedFormData(fd);
     } catch (err) {
-      setChatMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: "assistant",
-          content: "Sorry, I hit an error. Please try again.",
-        };
-        return updated;
-      });
+      setChatMessages((prev) => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: "Sorry, I hit an error. Please try again." },
+      ]);
       console.error(err);
     } finally {
       setChatStreaming(false);
@@ -1452,8 +1466,40 @@ export default function Home() {
 
         <div className="max-w-3xl mx-auto px-6 pt-12 space-y-6">
 
+          {/* Section nav chips */}
+          {(() => {
+            const sections = [
+              { id: "quality-gate", label: "Quality Gate" },
+              { id: "market-scan", label: "Market Scan" },
+              { id: "business-plan", label: "Business Plan" },
+              { id: "financial-model", label: "Financial Model" },
+              { id: "pitch-deck", label: "Pitch Deck" },
+              { id: "funding", label: "Funding" },
+              { id: "permits", label: "Permits" },
+              { id: "next-steps", label: "Next Steps" },
+              { id: "risks", label: "Risks" },
+            ];
+            return (
+              <div className="flex flex-wrap gap-2 pb-2">
+                {sections.map(({ id, label }) => (
+                  <button
+                    key={id}
+                    onClick={() => openAndScrollTo(id)}
+                    className={`font-dm text-xs rounded-full px-3 py-1.5 cursor-pointer transition-colors duration-200 border ${
+                      openSections[id]
+                        ? "border-gold/40 text-gold bg-white/[0.04]"
+                        : "border-white/10 text-white/50 bg-white/[0.04] hover:border-gold/30 hover:text-gold"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Section 1: Input Quality Gate */}
-          <SectionCard title="Input Quality Gate" delay={0} id="quality-gate">
+          <SectionCard title="Input Quality Gate" delay={0} id="quality-gate" open={openSections["quality-gate"]} onToggle={() => toggleSection("quality-gate")}>
             <div className="space-y-6">
               <StatBlock label="Readiness Score" value={report.qualityGate?.readinessScore ?? "N/A"} />
 
@@ -1505,7 +1551,7 @@ export default function Home() {
           </SectionCard>
 
           {/* Section 2: LA Market Scan */}
-          <SectionCard title="LA Market Scan & Feasibility" delay={0.05} id="market-scan">
+          <SectionCard title="LA Market Scan & Feasibility" delay={0.05} id="market-scan" open={openSections["market-scan"]} onToggle={() => toggleSection("market-scan")}>
             <div className="space-y-8">
               {/* Feasibility scorecard */}
               {scorecard && (
@@ -1610,7 +1656,7 @@ export default function Home() {
           </SectionCard>
 
           {/* Section 3: Business Plan */}
-          <SectionCard title="Business Plan" delay={0.1} id="business-plan">
+          <SectionCard title="Business Plan" delay={0.1} id="business-plan" open={openSections["business-plan"]} onToggle={() => toggleSection("business-plan")}>
             <div className="space-y-8">
               {/* Executive summary — 3 paragraphs */}
               {report.businessPlan?.executiveSummary && (
@@ -1743,7 +1789,7 @@ export default function Home() {
           </SectionCard>
 
           {/* Section 4: Financial Model */}
-          <SectionCard title="Financial Model" delay={0.15} id="financial-model">
+          <SectionCard title="Financial Model" delay={0.15} id="financial-model" open={openSections["financial-model"]} onToggle={() => toggleSection("financial-model")}>
             <div className="space-y-6">
 
               {/* Always-visible: keyAssumptions callout */}
@@ -2091,7 +2137,7 @@ export default function Home() {
           </SectionCard>
 
           {/* Section 5: Pitch Deck */}
-          <SectionCard title="Pitch Deck" delay={0.2} id="pitch-deck">
+          <SectionCard title="Pitch Deck" delay={0.2} id="pitch-deck" open={openSections["pitch-deck"]} onToggle={() => toggleSection("pitch-deck")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {report.pitchDeck?.slides?.map((slide) => (
                 <div
@@ -2125,7 +2171,7 @@ export default function Home() {
 
           {/* Shared: Funding Options */}
           {report.fundingOptions?.length > 0 && (
-            <SectionCard title="Funding Options" delay={0.25}>
+            <SectionCard title="Funding Options" delay={0.25} id="funding" open={openSections["funding"]} onToggle={() => toggleSection("funding")}>
               <div className="space-y-4">
                 {report.fundingOptions.map((opt, i) => (
                   <div key={i} className="border border-white/[0.08] rounded-xl p-5 hover:border-gold/20 transition-colors">
@@ -2143,7 +2189,7 @@ export default function Home() {
 
           {/* Shared: Permits */}
           {report.permits?.length > 0 && (
-            <SectionCard title="Required Permits" delay={0.3}>
+            <SectionCard title="Required Permits" delay={0.3} id="permits" open={openSections["permits"]} onToggle={() => toggleSection("permits")}>
               <div className="space-y-4">
                 {report.permits.map((permit, i) => (
                   <div key={i} className="border border-white/[0.08] rounded-xl p-5 hover:border-gold/20 transition-colors">
@@ -2163,7 +2209,7 @@ export default function Home() {
 
           {/* Shared: Next Steps */}
           {report.nextSteps?.length > 0 && (
-            <SectionCard title="Next Steps" delay={0.35}>
+            <SectionCard title="Next Steps" delay={0.35} id="next-steps" open={openSections["next-steps"]} onToggle={() => toggleSection("next-steps")}>
               <ol className="space-y-4">
                 {report.nextSteps.map((step, i) => (
                   <li key={i} className="flex gap-4">
@@ -2177,7 +2223,7 @@ export default function Home() {
 
           {/* Shared: Risk Factors */}
           {report.riskFactors?.length > 0 && (
-            <SectionCard title="Risk Factors" delay={0.4}>
+            <SectionCard title="Risk Factors" delay={0.4} id="risks" open={openSections["risks"]} onToggle={() => toggleSection("risks")}>
               <div className="space-y-3">
                 {report.riskFactors.map((risk, i) => (
                   <div key={i} className="border border-amber-500/20 bg-amber-500/5 rounded-xl p-4">

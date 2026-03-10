@@ -8,13 +8,35 @@ import {
   buildPitchDeckPrompt,
 } from "@/app/lib/prompt";
 
+function sanitizeJsonControlChars(text: string): string {
+  // Replace literal control characters inside JSON string values with their escape sequences.
+  // A naive global replace would break structural whitespace, so we walk char-by-char.
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { result += ch; escaped = false; continue; }
+    if (ch === "\\") { result += ch; escaped = true; continue; }
+    if (ch === '"') { inString = !inString; result += ch; continue; }
+    if (inString) {
+      if (ch === "\n") { result += "\\n"; continue; }
+      if (ch === "\r") { result += "\\r"; continue; }
+      if (ch === "\t") { result += "\\t"; continue; }
+    }
+    result += ch;
+  }
+  return result;
+}
+
 function parseJSON(raw: string): object {
   let text = raw.trim();
   text = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1) throw new SyntaxError("No JSON object found");
-  return JSON.parse(text.slice(start, end + 1));
+  const candidate = sanitizeJsonControlChars(text.slice(start, end + 1));
+  return JSON.parse(candidate);
 }
 
 async function callGroq(system: string, user: string, retries = 3): Promise<object> {

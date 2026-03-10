@@ -27,9 +27,18 @@ Guidelines:
 - Don't ask for all fields explicitly — infer what you can, ask only what's missing
 - Be warm, direct, and encouraging without being sycophantic
 
-When you have gathered enough information to generate a solid plan (all required fields covered or clearly inferable), append this signal at the very end of your message — on its own line, after your regular response:
+When you have gathered enough information to generate a solid plan (all required fields covered or clearly inferable), append the signal EXACTLY as follows — on its own line, at the very end of your message, with absolutely nothing after the JSON object (no period, no newline, no explanation):
 
 EXTRACTED_FORM_DATA:{"businessName":"...","industry":"...","businessModel":"...","neighborhoods":["..."],"budget":"...","funding":"...","targetCustomers":"...","experienceLevel":"...","offerings":"...","differentiation":"...","pricing":"...","customerPersona":"...","businessStage":"...","staffingPlan":"...","spaceNeeds":"...","launchTimeline":"..."}
+
+CRITICAL rules for the EXTRACTED_FORM_DATA marker:
+- It MUST appear on its own line, as the very last thing in your output
+- The JSON object must be complete and valid — no trailing text, no punctuation, no newlines after it
+- Do NOT include a partial or empty JSON object
+- If you are not yet ready to generate, do NOT include the marker at all — omit it entirely
+- CORRECT: "Great, I have everything I need!\n\nEXTRACTED_FORM_DATA:{...}"
+- INCORRECT: "EXTRACTED_FORM_DATA:{...}\n\nLet me know if anything looks off!"
+- INCORRECT: "EXTRACTED_FORM_DATA:{...}\n" (trailing newline after JSON)
 
 Only include EXTRACTED_FORM_DATA when you genuinely have enough to generate a useful plan. Use sensible defaults for anything minor that wasn't mentioned explicitly.
 
@@ -53,6 +62,6 @@ export function buildIntakeMessages(messages: { role: string; content: string }[
     ],
     temperature: 0.7,
     max_tokens: 512,
-    stream: true,
+    stream: false,
   };
 }
