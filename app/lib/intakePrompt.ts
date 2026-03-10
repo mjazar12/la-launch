@@ -55,13 +55,7 @@ LA neighborhood context for your reference:
 
 export function buildIntakeMessages(messages: { role: string; content: string }[]) {
   return {
-    model: "llama-3.3-70b-versatile",
-    messages: [
-      { role: "system", content: INTAKE_SYSTEM_PROMPT },
-      ...messages,
-    ],
-    temperature: 0.7,
-    max_tokens: 512,
-    stream: false,
+    system: INTAKE_SYSTEM_PROMPT,
+    messages,
   };
 }

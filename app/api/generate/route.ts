@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import {
   FormData,
   buildQualityGatePrompt,
@@ -7,6 +8,8 @@ import {
   buildFinancialModelPrompt,
   buildPitchDeckPrompt,
 } from "@/app/lib/prompt";
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 function sanitizeJsonControlChars(text: string): string {
   // Replace literal control characters inside JSON string values with their escape sequences.
@@ -39,47 +42,26 @@ function parseJSON(raw: string): object {
   return JSON.parse(candidate);
 }
 
-async function callGroq(system: string, user: string, retries = 3): Promise<object> {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0.7,
+async function callClaude(system: string, user: string, retries = 3): Promise<object> {
+  try {
+    const response = await client.messages.create({
+      model: "claude-opus-4-6",
       max_tokens: 8192,
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-
-    // Retry on rate limit errors
-    if (res.status === 429 && retries > 0) {
-      let waitMs = 20000; // default 20s
-      try {
-        const errJson = JSON.parse(errText);
-        const match = errJson?.error?.message?.match(/try again in ([\d.]+)s/i);
-        if (match) waitMs = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
-      } catch {}
+      system,
+      messages: [{ role: "user", content: user }],
+    });
+    const text = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+    console.log("[generate] raw response preview:", text.slice(0, 200));
+    return parseJSON(text);
+  } catch (err) {
+    if (err instanceof Anthropic.RateLimitError && retries > 0) {
+      const waitMs = 20000;
       console.log(`[generate] Rate limited. Retrying in ${waitMs}ms... (${retries} retries left)`);
       await new Promise((r) => setTimeout(r, waitMs));
-      return callGroq(system, user, retries - 1);
+      return callClaude(system, user, retries - 1);
     }
-
-    throw new Error(`Groq API error: ${errText}`);
+    throw err;
   }
-
-  const data = await res.json();
-  const text: string = data.choices[0].message.content.trim();
-  console.log("[generate] raw response preview:", text.slice(0, 200));
-  return parseJSON(text);
 }
 
 function validateFinancialModel(fm: Record<string, unknown>): string[] {
@@ -118,28 +100,28 @@ export async function POST(request: NextRequest) {
         // Stage 1: Quality Gate
         emit({ stage: 1, stageName: "Input Quality Gate", status: "running" });
         const { system: s1, user: u1 } = buildQualityGatePrompt(formData);
-        const qualityGate = await callGroq(s1, u1);
+        const qualityGate = await callClaude(s1, u1);
         console.log("[stage1] qualityGate:", JSON.stringify(qualityGate).slice(0, 300));
         emit({ stage: 1, stageName: "Input Quality Gate", status: "complete", result: qualityGate });
 
         // Stage 2: Market Scan
         emit({ stage: 2, stageName: "LA Market Scan", status: "running" });
         const { system: s2, user: u2 } = buildMarketScanPrompt(formData, qualityGate);
-        const marketScan = await callGroq(s2, u2);
+        const marketScan = await callClaude(s2, u2);
         console.log("[stage2] marketScan:", JSON.stringify(marketScan).slice(0, 300));
         emit({ stage: 2, stageName: "LA Market Scan", status: "complete", result: marketScan });
 
         // Stage 3: Business Plan
         emit({ stage: 3, stageName: "Business Plan", status: "running" });
         const { system: s3, user: u3 } = buildBusinessPlanPrompt(formData, marketScan);
-        const businessPlan = await callGroq(s3, u3);
+        const businessPlan = await callClaude(s3, u3);
         console.log("[stage3] businessPlan:", JSON.stringify(businessPlan).slice(0, 300));
         emit({ stage: 3, stageName: "Business Plan", status: "complete", result: businessPlan });
 
         // Stage 4: Financial Model
         emit({ stage: 4, stageName: "Financial Model", status: "running" });
         const { system: s4, user: u4 } = buildFinancialModelPrompt(formData, marketScan, businessPlan);
-        const financialModel = await callGroq(s4, u4);
+        const financialModel = await callClaude(s4, u4);
         console.log("[stage4] financialModel:", JSON.stringify(financialModel).slice(0, 300));
         const fm4 = financialModel as Record<string, unknown>;
         const validationWarnings = validateFinancialModel(fm4);
@@ -162,7 +144,7 @@ export async function POST(request: NextRequest) {
           dataPointsToCollect: fm.dataPointsToCollect,
         };
         const { system: s5, user: u5 } = buildPitchDeckPrompt(formData, marketScan, businessPlan, financialModelSummary);
-        const pitchDeck = await callGroq(s5, u5);
+        const pitchDeck = await callClaude(s5, u5);
         console.log("[stage5] pitchDeck:", JSON.stringify(pitchDeck).slice(0, 300));
         emit({ stage: 5, stageName: "Pitch Deck", status: "complete", result: pitchDeck });
 
