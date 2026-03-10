@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -478,7 +478,12 @@ function FeasibilityBar({ label, value }: { label: string; value: number }) {
 
 // ── Main Component ─────────────────────────────────────────────
 
-type Stage = "landing" | "questionnaire" | "generating" | "report";
+type Stage = "landing" | "chat" | "questionnaire" | "generating" | "report";
+
+interface ChatMessage {
+  role: "assistant" | "user";
+  content: string;
+}
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("landing");
@@ -510,6 +515,11 @@ export default function Home() {
   const [pipelineMsgIdx, setPipelineMsgIdx] = useState(0);
   const [isPptxExporting, setIsPptxExporting] = useState(false);
   const [financialTab, setFinancialTab] = useState<'pnl' | 'cashRunway' | 'scenarios' | 'assumptions'>('pnl');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatStreaming, setChatStreaming] = useState(false);
+  const [extractedFormData, setExtractedFormData] = useState<FormData | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
   const [showFullPnL, setShowFullPnL] = useState(false);
   const [showFullCashRunway, setShowFullCashRunway] = useState(false);
 
@@ -575,15 +585,111 @@ export default function Home() {
     }));
   }
 
-  async function submitForm() {
+  // ── Chat intake functions ─────────────────────────────────
+
+  function startChat() {
+    setChatMessages([{
+      role: "assistant",
+      content: "Tell me about your business idea — what do you want to build and where in LA?",
+    }]);
+    setExtractedFormData(null);
+    setChatInput("");
+    setStage("chat");
+  }
+
+  useEffect(() => {
+    if (stage === "chat" && chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages, stage]);
+
+  async function sendChatMessage() {
+    const trimmed = chatInput.trim();
+    if (!trimmed || chatStreaming) return;
+
+    const newMessages: ChatMessage[] = [
+      ...chatMessages,
+      { role: "user", content: trimmed },
+    ];
+    setChatMessages(newMessages);
+    setChatInput("");
+    setChatStreaming(true);
+
+    // Optimistically add empty assistant message
+    setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    try {
+      const res = await fetch("/api/intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: newMessages }),
+      });
+
+      if (!res.body) throw new Error("No body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6).trim();
+          if (payload === "[DONE]") break;
+
+          if (payload.startsWith("[FORM_DATA]")) {
+            try {
+              const fd = JSON.parse(payload.slice(11));
+              setExtractedFormData(fd);
+            } catch { /* ignore */ }
+            continue;
+          }
+
+          let parsed: { token?: string };
+          try { parsed = JSON.parse(payload); } catch { continue; }
+          if (parsed.token) {
+            setChatMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                content: updated[updated.length - 1].content + parsed.token,
+              };
+              return updated;
+            });
+          }
+        }
+      }
+    } catch (err) {
+      setChatMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          role: "assistant",
+          content: "Sorry, I hit an error. Please try again.",
+        };
+        return updated;
+      });
+      console.error(err);
+    } finally {
+      setChatStreaming(false);
+    }
+  }
+
+  async function submitForm(overrideData?: FormData) {
     setStage("generating");
     setPipelineMsgIdx(0);
     setError(null);
     setPipelineStages(PIPELINE_STAGE_NAMES.map((name) => ({ name, status: "pending" })));
 
+    const sourceData = overrideData ?? formData;
     const payload = {
-      ...formData,
-      industry: formData.industry === "Other" ? otherIndustry : formData.industry,
+      ...sourceData,
+      industry: sourceData.industry === "Other" ? otherIndustry : sourceData.industry,
     };
 
     try {
@@ -640,12 +746,16 @@ export default function Home() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
-      setStage("questionnaire");
+      setStage(extractedFormData ? "chat" : "questionnaire");
     }
   }
 
   function resetAll() {
     setStage("landing");
+    setChatMessages([]);
+    setChatInput("");
+    setChatStreaming(false);
+    setExtractedFormData(null);
     setQuestionIndex(0);
     setFormData({
       businessName: "",
@@ -762,15 +872,144 @@ export default function Home() {
             Your AI-powered LA business plan in 60 seconds
           </p>
           <button
-            onClick={() => setStage("questionnaire")}
+            onClick={startChat}
             className="px-10 py-4 bg-gold text-noir font-dm font-semibold text-sm tracking-wider uppercase rounded-full hover:bg-gold/90 transition-all duration-200 hover:scale-105 active:scale-95"
           >
             Build My Plan
           </button>
           <p className="font-dm text-xs text-white/25 mt-6">
-            16 questions · No account required · 5-stage AI analysis
+            AI-powered advisor · No account required · 5-stage analysis
           </p>
+          <button
+            onClick={() => setStage("questionnaire")}
+            className="mt-4 font-dm text-xs text-white/20 hover:text-white/40 transition-colors underline underline-offset-2"
+          >
+            Use structured form instead
+          </button>
         </motion.div>
+      </div>
+    );
+  }
+
+  // ── QUESTIONNAIRE ──────────────────────────────────────────
+
+  // ── CHAT INTAKE ────────────────────────────────────────────
+
+  if (stage === "chat") {
+    return (
+      <div className="min-h-screen bg-noir flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <span className="font-playfair text-xl text-white">LA Launch</span>
+            <span className="font-dm text-xs text-gold/50 uppercase tracking-widest">Advisor</span>
+          </div>
+          <button
+            onClick={() => setStage("questionnaire")}
+            className="font-dm text-xs text-white/25 hover:text-white/50 transition-colors"
+          >
+            Use structured form instead →
+          </button>
+        </div>
+
+        {/* Chat messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-6 max-w-2xl mx-auto w-full space-y-4">
+          {chatMessages.map((msg, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              {msg.role === "assistant" && (
+                <div className="w-7 h-7 rounded-full bg-gold/20 border border-gold/30 flex items-center justify-center mr-3 shrink-0 mt-1">
+                  <span className="text-gold text-xs">✦</span>
+                </div>
+              )}
+              <div
+                className={`max-w-[80%] rounded-2xl px-5 py-3.5 font-dm text-sm leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-gold/15 border border-gold/20 text-white/90 rounded-br-sm"
+                    : "bg-white/[0.04] border border-white/[0.08] text-white/80 rounded-bl-sm"
+                }`}
+              >
+                {msg.content || (chatStreaming && i === chatMessages.length - 1 ? (
+                  <span className="inline-flex gap-1">
+                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }}>·</motion.span>
+                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity, delay: 0.2 }}>·</motion.span>
+                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity, delay: 0.4 }}>·</motion.span>
+                  </span>
+                ) : "")}
+              </div>
+            </motion.div>
+          ))}
+
+          {/* Generate CTA — appears when form data is extracted */}
+          <AnimatePresence>
+            {extractedFormData && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="bg-charcoal border border-gold/20 rounded-2xl p-5 space-y-4"
+              >
+                <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Ready to generate</div>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(extractedFormData)
+                    .filter(([, v]) => v && (typeof v === "string" ? v.trim() : (Array.isArray(v) ? v.length > 0 : true)))
+                    .slice(0, 8)
+                    .map(([key, val]) => (
+                      <span key={key} className="font-dm text-xs bg-white/[0.05] border border-white/10 text-white/60 rounded-full px-3 py-1">
+                        {Array.isArray(val) ? val.join(", ") : String(val)}
+                      </span>
+                    ))}
+                </div>
+                <button
+                  onClick={() => submitForm(extractedFormData)}
+                  className="w-full px-8 py-3.5 bg-gold text-noir font-dm font-semibold text-sm tracking-wider uppercase rounded-full hover:bg-gold/90 transition-all duration-200 hover:scale-[1.02] active:scale-95"
+                >
+                  Generate My Plan →
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div ref={chatBottomRef} />
+        </div>
+
+        {/* Input bar */}
+        <div className="border-t border-white/[0.06] px-4 py-4 max-w-2xl mx-auto w-full">
+          {error && (
+            <div className="mb-3 px-4 py-2 bg-red-500/10 border border-red-500/30 rounded-xl font-dm text-xs text-red-400">
+              {error}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendChatMessage()}
+              disabled={chatStreaming}
+              placeholder="Describe your business idea..."
+              className="flex-1 bg-white/[0.04] border border-white/10 focus:border-gold/40 outline-none font-dm text-sm text-white placeholder-white/25 px-4 py-3 rounded-xl transition-colors duration-200"
+              autoFocus
+            />
+            <button
+              onClick={sendChatMessage}
+              disabled={chatStreaming || !chatInput.trim()}
+              className={`px-5 py-3 rounded-xl font-dm text-sm font-semibold transition-all duration-200 ${
+                chatStreaming || !chatInput.trim()
+                  ? "bg-white/5 text-white/20 cursor-not-allowed"
+                  : "bg-gold text-noir hover:bg-gold/90 active:scale-95"
+              }`}
+            >
+              →
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1948,6 +2187,71 @@ export default function Home() {
               </div>
             </SectionCard>
           )}
+
+          {/* Coming Soon Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 32 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="pt-4"
+          >
+            <div className="flex items-center gap-4 mb-6">
+              <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(212,168,83,0.3))" }} />
+              <span className="font-playfair text-base text-white/30 whitespace-nowrap">What&apos;s Coming to LA Launch</span>
+              <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, rgba(212,168,83,0.3), transparent)" }} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[
+                {
+                  icon: "🔍",
+                  title: "Live Competitor Scan",
+                  description: "Real-time web search for actual businesses in your chosen neighborhood — menus, pricing, reviews, and market gaps.",
+                },
+                {
+                  icon: "🏢",
+                  title: "Real Estate Listings",
+                  description: "Browse available commercial spaces matching your size, budget, and neighborhood — linked to actual listings.",
+                },
+                {
+                  icon: "💬",
+                  title: "Ask Your Advisor",
+                  description: "Chat with an AI that knows your full plan — stress-test assumptions, explore pivots, get specific answers.",
+                },
+                {
+                  icon: "🤝",
+                  title: "Investor Matching",
+                  description: "Surface LA-area angels and micro-VCs aligned to your industry and stage, with warm intro context.",
+                },
+                {
+                  icon: "⚡",
+                  title: "One-Click Applications",
+                  description: "Pre-fill and submit directly to Kiva LA, LISC LA, and SBA Microloan programs from your plan data.",
+                },
+              ].map(({ icon, title, description }) => (
+                <div
+                  key={title}
+                  className="border border-white/5 bg-white/[0.02] rounded-2xl p-6 relative overflow-hidden opacity-70 cursor-not-allowed"
+                >
+                  {/* Watermark */}
+                  <div
+                    className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
+                    style={{ opacity: 0.03, fontSize: "4rem", fontFamily: "serif", transform: "rotate(-20deg)", letterSpacing: "0.5em", color: "#D4A853" }}
+                  >
+                    FUTURE
+                  </div>
+                  {/* Lock + badge */}
+                  <div className="absolute top-4 right-4 flex items-center gap-2">
+                    <span className="font-dm text-[10px] text-gold bg-gold/10 border border-gold/20 rounded-full px-2 py-0.5 uppercase tracking-widest">Coming Soon</span>
+                    <span className="text-white/30 text-sm">🔒</span>
+                  </div>
+                  <div className="text-2xl mb-3">{icon}</div>
+                  <h3 className="font-playfair text-base text-white/50 mb-2">{title}</h3>
+                  <p className="font-dm text-xs text-white/30 leading-relaxed">{description}</p>
+                </div>
+              ))}
+            </div>
+          </motion.div>
 
           {/* Footer actions */}
           <motion.div
