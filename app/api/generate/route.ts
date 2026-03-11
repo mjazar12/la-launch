@@ -70,9 +70,16 @@ function parseJSON(raw: string): object {
 
 async function callClaude(
   system: string,
-  user: string,
   model = "claude-haiku-4-5-20251001",
-  { rateRetries = 3, parseRetries = 2 } = {}
+  {
+    rateRetries = 3,
+    parseRetries = 2,
+    validate,
+  }: {
+    rateRetries?: number;
+    parseRetries?: number;
+    validate?: (result: object) => void;
+  } = {}
 ): Promise<object> {
   // Inner: one API call + parse attempt
   async function attempt(): Promise<object> {
@@ -81,14 +88,16 @@ async function callClaude(
         model,
         max_tokens: 8192,
         system,
-        messages: [{ role: "user", content: user }],
+        messages: [{ role: "user", content: "Output the JSON." }],
       });
       const text = response.content[0].type === "text" ? response.content[0].text.trim() : "";
       console.log("[generate] raw response preview:", text.slice(0, 200));
       try {
-        return parseJSON(text);
+        const parsed = parseJSON(text);
+        validate?.(parsed);
+        return parsed;
       } catch (parseErr) {
-        console.error("[generate] JSON parse error. Full raw response:\n", text);
+        console.error("[generate] JSON/validation error. Full raw response:\n", text);
         throw parseErr;
       }
     } catch (err) {
@@ -96,7 +105,7 @@ async function callClaude(
         const waitMs = 20000;
         console.log(`[generate] Rate limited. Retrying in ${waitMs}ms... (${rateRetries} left)`);
         await new Promise((r) => setTimeout(r, waitMs));
-        return callClaude(system, user, model, { rateRetries: rateRetries - 1, parseRetries });
+        return callClaude(system, model, { rateRetries: rateRetries - 1, parseRetries });
       }
       throw err;
     }
@@ -117,6 +126,107 @@ async function callClaude(
   throw new Error("Unreachable");
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function deriveFinancialWarnings(
+  result: object,
+  qualityGate: object,
+  marketScan: object
+): { financialWarnings: string[]; financialConsistency: "aligned" | "fragile" | "optimistic" } {
+  const financialWarnings: string[] = [];
+  let financialConsistency: "aligned" | "fragile" | "optimistic" = "aligned";
+
+  if (!isPlainObject(result)) {
+    return {
+      financialWarnings: ["Financial model could not be interpreted clearly."],
+      financialConsistency: "fragile",
+    };
+  }
+
+  const financials = isPlainObject(result.financials) ? result.financials : {};
+  const scenarios = isPlainObject(financials.scenarios) ? financials.scenarios : {};
+  const recommendedScenario = String(financials.recommendedScenario ?? "base");
+  const recommended = isPlainObject(scenarios[recommendedScenario]) ? scenarios[recommendedScenario] : {};
+
+  const quality = isPlainObject(qualityGate) ? qualityGate : {};
+  const market = isPlainObject(marketScan) ? marketScan : {};
+  const sectionConfidence = isPlainObject(quality.sectionConfidence) ? quality.sectionConfidence : {};
+  const feasibility = isPlainObject(market.feasibility) ? market.feasibility : {};
+
+  const readinessScore = Number(quality.readinessScore ?? 0);
+  const financialConfidence = String(sectionConfidence.financials ?? "");
+  const regulatoryRisk = Number(feasibility.regulatoryRisk ?? 5);
+  const opsComplexity = Number(feasibility.opsComplexity ?? 5);
+  const capitalIntensity = Number(feasibility.capitalIntensity ?? 5);
+  const lowConfidencePlan = readinessScore <= 5
+    || financialConfidence === "low"
+    || regulatoryRisk <= 2
+    || opsComplexity <= 2
+    || capitalIntensity <= 2;
+
+  const breakEvenMonth = Number(recommended.breakEvenMonth ?? 99);
+  const year1Revenue = Number(recommended.year1Revenue ?? 0);
+  const year1NetIncome = Number(recommended.year1NetIncome ?? 0);
+  const margin = year1Revenue > 0 ? year1NetIncome / year1Revenue : 0;
+
+  if (lowConfidencePlan) {
+    financialConsistency = "fragile";
+    financialWarnings.push("This idea is still early, so the forecast depends on several assumptions holding.");
+  }
+  if (recommendedScenario === "upside" && lowConfidencePlan) {
+    financialConsistency = "optimistic";
+    financialWarnings.push("The financial model is leaning on an upside case even though the idea still looks risky.");
+  }
+  if (lowConfidencePlan && breakEvenMonth > 0 && breakEvenMonth < 5) {
+    financialConsistency = "optimistic";
+    financialWarnings.push("Break-even happens very early for a risky idea, so the timing may be too optimistic.");
+  }
+  if (lowConfidencePlan && margin > 0.2) {
+    financialConsistency = "optimistic";
+    financialWarnings.push("Year 1 profit stays unusually strong for a weak concept, so treat it as best-case only.");
+  }
+  if ((breakEvenMonth > 12 || year1NetIncome <= 0) && !financialWarnings.includes("This idea is still early, so the forecast depends on several assumptions holding.")) {
+    financialWarnings.push("The cautious case does not show an easy path to profitability in year 1.");
+  }
+
+  return { financialWarnings, financialConsistency };
+}
+
+function validateBusinessPlan(result: object): void {
+  if (!isPlainObject(result)) throw new SyntaxError("Business plan is not an object");
+  const financials = result.financials;
+  if (!isPlainObject(financials)) throw new SyntaxError("Missing financials object");
+
+  const scenarios = financials.scenarios;
+  if (!isPlainObject(scenarios)) throw new SyntaxError("Missing financial scenarios");
+
+  const recommendedScenario = financials.recommendedScenario;
+  if (!["downside", "base", "upside"].includes(String(recommendedScenario))) {
+    throw new SyntaxError("Invalid recommendedScenario");
+  }
+
+  const assumptionPressure = financials.assumptionPressure;
+  if (!Array.isArray(assumptionPressure) || assumptionPressure.length !== 3) {
+    throw new SyntaxError("assumptionPressure must have exactly 3 items");
+  }
+
+  for (const scenarioName of ["downside", "base", "upside"] as const) {
+    const scenario = scenarios[scenarioName];
+    if (!isPlainObject(scenario)) throw new SyntaxError(`Missing ${scenarioName} scenario`);
+    if (!Array.isArray(scenario.monthlyProjections) || scenario.monthlyProjections.length !== 12) {
+      throw new SyntaxError(`${scenarioName} must contain 12 monthly projections`);
+    }
+    if (typeof scenario.breakEvenMonth !== "number") {
+      throw new SyntaxError(`${scenarioName} must include a numeric breakEvenMonth`);
+    }
+    if (typeof scenario.year1Revenue !== "number" || typeof scenario.year1NetIncome !== "number") {
+      throw new SyntaxError(`${scenarioName} must include numeric year 1 totals`);
+    }
+  }
+}
+
 
 export async function POST(request: NextRequest) {
   const formData: FormData = await request.json();
@@ -133,44 +243,44 @@ export async function POST(request: NextRequest) {
         // Wave 1: Stage 1 (Quality Gate) + Stage 2 (Market Scan) in parallel
         emit({ stage: 1, stageName: "Input Quality Gate", status: "running" });
         emit({ stage: 2, stageName: "LA Market Scan", status: "running" });
-        const { system: s1, user: u1 } = buildQualityGatePrompt(formData);
-        const { system: s2, user: u2 } = buildMarketScanPrompt(formData, {});
         const [qualityGate, marketScan] = await Promise.all([
-          callClaude(s1, u1, "claude-haiku-4-5-20251001"),
-          callClaude(s2, u2, "claude-haiku-4-5-20251001"),
+          callClaude(buildQualityGatePrompt(formData), "claude-haiku-4-5-20251001"),
+          callClaude(buildMarketScanPrompt(formData), "claude-haiku-4-5-20251001"),
         ]);
         console.log("[stage1] qualityGate:", JSON.stringify(qualityGate).slice(0, 300));
         console.log("[stage2] marketScan:", JSON.stringify(marketScan).slice(0, 300));
         emit({ stage: 1, stageName: "Input Quality Gate", status: "complete", result: qualityGate });
         emit({ stage: 2, stageName: "LA Market Scan", status: "complete", result: marketScan });
 
-        // Wave 2: Stage 3 (Business Plan) — needs marketScan
+        // Wave 2: Stage 3 (Business Plan)
         emit({ stage: 3, stageName: "Business Plan", status: "running" });
-        const { system: s3, user: u3 } = buildBusinessPlanPrompt(formData, marketScan);
-        const businessPlan = await callClaude(s3, u3, "claude-haiku-4-5-20251001");
-        console.log("[stage3] businessPlan:", JSON.stringify(businessPlan).slice(0, 300));
-        emit({ stage: 3, stageName: "Business Plan", status: "complete", result: businessPlan });
+        const businessPlan = await callClaude(
+          buildBusinessPlanPrompt(formData, qualityGate, marketScan),
+          "claude-haiku-4-5-20251001",
+          {
+            validate: validateBusinessPlan,
+          }
+        );
+        const warningMeta = deriveFinancialWarnings(businessPlan, qualityGate, marketScan);
+        const enrichedBusinessPlan = {
+          ...businessPlan,
+          ...warningMeta,
+        };
+        console.log("[stage3] businessPlan:", JSON.stringify(enrichedBusinessPlan).slice(0, 300));
+        emit({ stage: 3, stageName: "Business Plan", status: "complete", result: enrichedBusinessPlan });
 
         // Wave 3: Stage 4 (Pitch Deck)
         emit({ stage: 4, stageName: "Pitch Deck", status: "running" });
-        const { system: s4, user: u4 } = buildPitchDeckPrompt(formData, marketScan, businessPlan);
-        const pitchDeck = await callClaude(s4, u4, "claude-haiku-4-5-20251001");
+        const pitchDeck = await callClaude(buildPitchDeckPrompt(formData), "claude-haiku-4-5-20251001");
         console.log("[stage4] pitchDeck:", JSON.stringify(pitchDeck).slice(0, 300));
         emit({ stage: 4, stageName: "Pitch Deck", status: "complete", result: pitchDeck });
-
-        // Pull top-level fields from businessPlan
-        const bp = businessPlan as Record<string, unknown>;
 
         const report = {
           businessName: formData.businessName,
           qualityGate,
           marketScan,
-          businessPlan,
+          businessPlan: enrichedBusinessPlan,
           pitchDeck,
-          fundingOptions: Array.isArray(bp.fundingOptions) ? bp.fundingOptions : [],
-          permits: Array.isArray(bp.permits) ? bp.permits : [],
-          nextSteps: Array.isArray(bp.nextSteps) ? bp.nextSteps : [],
-          riskFactors: Array.isArray(bp.riskFactors) ? bp.riskFactors : [],
         };
 
         emit({ type: "final", report });

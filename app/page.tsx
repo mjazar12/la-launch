@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  LineChart, Line, BarChart, Bar, XAxis, YAxis,
+  Tooltip, ReferenceLine, ResponsiveContainer, LabelList,
+} from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -24,92 +28,105 @@ interface FormData {
   experienceLevel: string;
 }
 
-interface FundingOption {
-  name: string;
-  description: string;
-  amount: string;
-  fit: string;
+interface MonthlyProjection {
+  month: number;
+  revenue: number;
+  cogs: number;
+  opex: number;
+  netIncome: number;
 }
 
-interface Permit {
-  name: string;
-  description: string;
-  estimatedCost: string;
-  timeline: string;
+interface StartupCostItem {
+  item: string;
+  cost: number;
 }
 
+interface Financials {
+  startupCosts: StartupCostItem[];
+  unitEconomics: {
+    avgTicket: number;
+    cogs: number;
+    grossMarginPct: number;
+    dailyTransactionsToBreakEven: number;
+  };
+  scenarios: {
+    downside: FinancialScenario;
+    base: FinancialScenario;
+    upside: FinancialScenario;
+  };
+  recommendedScenario: "downside" | "base" | "upside";
+  assumptionPressure: string[];
+  credibilityNote: string;
+  totalStartupCost: number;
+}
+
+interface FinancialScenario {
+  monthlyProjections: MonthlyProjection[];
+  breakEvenMonth: number;
+  year1Revenue: number;
+  year1NetIncome: number;
+}
 
 interface ReportData {
   businessName: string;
   qualityGate: {
-    readinessScore: string;
+    readinessScore: number;
+    readinessLabel: string;
     topGaps: string[];
-    unreliableSectionsWarning: string;
+    sectionConfidence: Record<string, "high" | "medium" | "low">;
   };
   marketScan: {
-    executiveSummary: string[];
-    customerAndDemand: {
-      personas: string;
-      demandDrivers: string;
-      willingnessToPay: string;
-    };
-    competitiveLandscape: {
-      directCompetitors: string;
-      whitespaceOpportunities: string;
-    };
-    locationAnalysis: {
-      recommendedAreas: string;
-      estimatedMonthlyRent: string;
-      footTrafficNotes: string;
-      proximityAdvantage: string;
-    };
-    feasibilityScorecard: {
+    verdict: string;
+    feasibility: {
       demand: number;
       competition: number;
       opsComplexity: number;
       capitalIntensity: number;
       regulatoryRisk: number;
       timelineRealism: number;
-      scorecardNotes: string;
     };
-    next5Actions: string[];
+    targetCustomer: string;
+    topCompetitors: Array<{ name: string; threat: string; weakness: string }>;
+    locationRec: {
+      primary: string;
+      secondary: string;
+      monthlyRent: string;
+      whyHere: string;
+    };
+    next3Actions: string[];
   };
   businessPlan: {
     executiveSummary: string;
-    productService: {
-      offerings: string;
-      pricingLogic: string;
-      differentiation: string;
+    product: {
+      headline: string;
+      bullets: string[];
+      moat: string;
     };
     goToMarket: {
-      channels: string;
-      launchPlan: string;
+      phases: Array<{ label: string; action: string }>;
+      channels: string[];
       retention: string;
     };
-    operationsPlan: {
-      location: string;
-      staffing: string;
-      workflow: string;
+    operations: {
+      locationName: string;
+      locationWhy: string;
+      bullets: string[];
     };
-    milestones: {
-      days0to30: string | string[];
-      days31to90: string | string[];
-      days91to180: string | string[];
-    };
-    risksAndMitigations: Array<{ risk: string; trigger: string; response: string }>;
+    milestones: Array<{ period: string; items: string[] }>;
+    permits: Array<{ name: string; cost: number; timelineWeeks: number; action: string }>;
+    funding: Array<{ source: string; amount: number; fit: string }>;
+    risks: Array<{ risk: string; mitigation: string }>;
+    financials: Financials;
+    financialWarnings: string[];
+    financialConsistency: "aligned" | "fragile" | "optimistic";
   };
   pitchDeck: {
     slides: Array<{
       slideNumber: number;
       title: string;
       bullets: string[];
-      speakerNotes: string;
     }>;
   };
-  fundingOptions: FundingOption[];
-  permits: Permit[];
-  nextSteps: string[];
-  riskFactors: string[];
 }
 
 interface PipelineStage {
@@ -216,7 +233,7 @@ const PIPELINE_MESSAGES = [
   "Cross-referencing Koreatown rent data...",
   "Evaluating SBA loan fit...",
   "Building your pitch narrative...",
-  "Modeling 24-month cash runway...",
+  "Modeling 12-month cash runway...",
   "Scanning LA neighborhood foot traffic...",
   "Stress-testing your financial assumptions...",
   "Drafting competitive landscape analysis...",
@@ -405,26 +422,16 @@ function SectionCard({
   );
 }
 
-function StatBlock({ label, value }: { label: string; value: string }) {
+function StatCallout({ label, value, color = "gold" }: { label: string; value: string; color?: "gold" | "green" | "white" }) {
+  const colorClass = color === "gold" ? "text-gold" : color === "green" ? "text-green-400" : "text-white";
   return (
     <div className="bg-noir/60 border border-gold/20 rounded-xl p-5 text-center">
-      <div className="font-playfair text-2xl text-gold leading-tight mb-1 break-words">
+      <div className={`font-playfair text-3xl font-bold ${colorClass} leading-tight mb-1`}>
         {value}
       </div>
-      <div className="font-dm text-xs text-white/50 uppercase tracking-widest mt-1">
+      <div className="font-dm text-xs text-white/40 uppercase tracking-widest mt-1">
         {label}
       </div>
-    </div>
-  );
-}
-
-function LabeledCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-1.5">
-        {label}
-      </div>
-      <p className="font-dm text-white/70 leading-relaxed">{value}</p>
     </div>
   );
 }
@@ -432,12 +439,9 @@ function LabeledCard({ label, value }: { label: string; value: string }) {
 function FeasibilityBar({ label, value }: { label: string; value: number }) {
   const clamped = Math.max(1, Math.min(5, value));
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between items-center">
-        <span className="font-dm text-xs text-white/60">{label}</span>
-        <span className="font-dm text-xs text-gold">{clamped}/5</span>
-      </div>
-      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+    <div className="flex items-center gap-3">
+      <span className="font-dm text-xs text-white/60 w-32 shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${(clamped / 5) * 100}%` }}
@@ -445,6 +449,80 @@ function FeasibilityBar({ label, value }: { label: string; value: number }) {
           className="h-full bg-gold rounded-full"
         />
       </div>
+      <span className="font-dm text-xs text-gold w-6 text-right">{clamped}</span>
+    </div>
+  );
+}
+
+function ReadinessGauge({ score }: { score: number }) {
+  const color = score >= 7 ? "#D4A853" : score >= 4 ? "#F59E0B" : "#EF4444";
+  const r = 36;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * (score / 10);
+  return (
+    <svg width="96" height="96" viewBox="0 0 96 96" aria-label={`Readiness score: ${score} out of 10`}>
+      <circle cx="48" cy="48" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+      <circle
+        cx="48" cy="48" r={r} fill="none"
+        stroke={color} strokeWidth="6"
+        strokeDasharray={`${dash} ${circ - dash}`}
+        strokeLinecap="round"
+        transform="rotate(-90 48 48)"
+      />
+      <text x="48" y="54" textAnchor="middle" fill={color} fontSize="26" fontFamily="Georgia, serif" fontWeight="bold">
+        {score}
+      </text>
+    </svg>
+  );
+}
+
+function formatCurrency(value: number | undefined | null): string {
+  return `$${Number(value ?? 0).toLocaleString()}`;
+}
+
+function formatBreakEven(month: number | undefined | null): string {
+  const numericMonth = Number(month ?? 0);
+  if (!numericMonth || numericMonth > 12) return "No BE";
+  return `Mo ${numericMonth}`;
+}
+
+function truncateWords(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text;
+  return `${words.slice(0, maxWords).join(" ")}...`;
+}
+
+function compactStartupCostLabel(label: string): string {
+  const normalized = label
+    .split("(")[0]
+    .split(",")[0]
+    .replace(/\s+/g, " ")
+    .trim();
+  return truncateWords(normalized, 3);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ProjectionTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#1a1a1a", border: "1px solid rgba(212,168,83,0.35)", borderRadius: 8, padding: "8px 12px", fontSize: 11, fontFamily: "DM Sans, sans-serif" }}>
+      <div style={{ color: "rgba(255,255,255,0.45)", marginBottom: 4 }}>Month {label}</div>
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {payload.map((entry: any) => (
+        <div key={entry.name} style={{ color: entry.color, marginBottom: 2 }}>
+          {entry.name}: ${Number(entry.value).toLocaleString()}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function CostTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#1a1a1a", border: "1px solid rgba(212,168,83,0.35)", borderRadius: 8, padding: "6px 10px", fontSize: 11, fontFamily: "DM Sans, sans-serif", color: "#D4A853" }}>
+      ${Number(payload[0]?.value ?? 0).toLocaleString()}
     </div>
   );
 }
@@ -486,30 +564,27 @@ export default function Home() {
     PIPELINE_STAGE_NAMES.map((name) => ({ name, status: "pending" }))
   );
   const [pipelineMsgIdx, setPipelineMsgIdx] = useState(0);
-  const [isPptxExporting, setIsPptxExporting] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatStreaming, setChatStreaming] = useState(false);
   const [extractedFormData, setExtractedFormData] = useState<FormData | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    "quality-gate": true,
-    "market-scan": false,
-    "business-plan": false,
-    "pitch-deck": false,
-    "funding": false,
-    "permits": false,
-    "next-steps": true,
-    "risks": false,
+    "market-scan": true,
+    "business-plan": true,
+    "financials": true,
+    "pitch-deck": true,
   });
+  const [activePitchSlide, setActivePitchSlide] = useState(0);
+  const [openPermitActions, setOpenPermitActions] = useState<Record<string, boolean>>({});
+  const [activeScenario, setActiveScenario] = useState<"downside" | "base" | "upside">("base");
 
   function toggleSection(id: string) {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
-  function openAndScrollTo(id: string) {
-    setOpenSections((prev) => ({ ...prev, [id]: true }));
-    setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }), 50);
+  function togglePermitAction(id: string) {
+    setOpenPermitActions((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   // Cycle pipeline messages
@@ -534,8 +609,7 @@ export default function Home() {
         );
       case 2: return formData.businessStage !== "";
       case 3: return formData.businessModel !== "";
-      case 4:
-        return formData.neighborhoods.length > 0;
+      case 4: return formData.neighborhoods.length > 0;
       case 5: return formData.offerings.trim().length > 0;
       case 6: return formData.differentiation.trim().length > 0;
       case 7: return formData.pricing.trim().length > 0;
@@ -674,14 +748,14 @@ export default function Home() {
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") break;
+          const ssePayload = line.slice(6).trim();
+          if (ssePayload === "[DONE]") break;
 
           let event: Record<string, unknown>;
           try {
-            event = JSON.parse(payload);
+            event = JSON.parse(ssePayload);
           } catch {
-            continue; // skip malformed SSE lines
+            continue;
           }
 
           if (event.status === "running") {
@@ -699,7 +773,9 @@ export default function Home() {
           } else if (event.status === "error") {
             throw new Error(event.message as string);
           } else if (event.type === "final") {
-            setReport(event.report as ReportData);
+            const nextReport = event.report as ReportData;
+            setReport(nextReport);
+            setActiveScenario(nextReport.businessPlan?.financials?.recommendedScenario ?? "base");
             setStage("report");
           }
         }
@@ -739,6 +815,9 @@ export default function Home() {
     setReport(null);
     setError(null);
     setPipelineStages(PIPELINE_STAGE_NAMES.map((name) => ({ name, status: "pending" })));
+    setActivePitchSlide(0);
+    setOpenPermitActions({});
+    setActiveScenario("base");
   }
 
   function downloadHTML() {
@@ -751,51 +830,6 @@ export default function Home() {
     a.download = `${report.businessName.replace(/\s+/g, "-")}-business-plan.html`;
     a.click();
     URL.revokeObjectURL(url);
-  }
-
-  async function exportPPTX() {
-    if (!report || isPptxExporting) return;
-    setIsPptxExporting(true);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod = await import("pptxgenjs") as any;
-      const PptxGen = mod.default ?? mod;
-
-      const BG = "0A0A0A";
-      const GOLD = "D4A853";
-      const WHITE = "FFFFFF";
-      const SUBTEXT = "AAAAAA";
-
-      const pptx = new PptxGen();
-      pptx.layout = "LAYOUT_16x9";
-
-      for (const slide of report.pitchDeck.slides) {
-        const s = pptx.addSlide();
-        s.background = { color: BG };
-        s.addText(`${slide.slideNumber}`, {
-          x: 8.5, y: 0.2, w: 1.2, h: 0.4,
-          color: GOLD, fontSize: 12, fontFace: "Arial", align: "right",
-        });
-        s.addText(slide.title, {
-          x: 0.5, y: 0.5, w: 9, h: 0.9,
-          color: GOLD, fontSize: 28, bold: true, fontFace: "Georgia",
-        });
-        slide.bullets.forEach((bullet, i) => {
-          s.addText(`• ${bullet}`, {
-            x: 0.5, y: 1.6 + i * 0.65, w: 9, h: 0.6,
-            color: WHITE, fontSize: 14, fontFace: "Arial", wrap: true,
-          });
-        });
-        s.addText(slide.speakerNotes, {
-          x: 0.5, y: 5.8, w: 9, h: 0.6,
-          color: SUBTEXT, fontSize: 9, fontFace: "Arial", wrap: true, italic: true,
-        });
-      }
-
-      await pptx.writeFile({ fileName: `${report.businessName}-pitch-deck.pptx` });
-    } finally {
-      setIsPptxExporting(false);
-    }
   }
 
   // ── LANDING ────────────────────────────────────────────────
@@ -850,8 +884,6 @@ export default function Home() {
       </div>
     );
   }
-
-  // ── QUESTIONNAIRE ──────────────────────────────────────────
 
   // ── CHAT INTAKE ────────────────────────────────────────────
 
@@ -1003,7 +1035,6 @@ export default function Home() {
               transition={fadeUp.transition}
               className="w-full"
             >
-              {/* Q1: Business name */}
               {questionIndex === 0 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 1 of 16</div>
@@ -1022,7 +1053,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q2: Industry */}
               {questionIndex === 1 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 2 of 16</div>
@@ -1044,7 +1074,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q3: Business stage */}
               {questionIndex === 2 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 3 of 16</div>
@@ -1058,7 +1087,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q4: Business model */}
               {questionIndex === 3 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 4 of 16</div>
@@ -1072,7 +1100,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q5: Neighborhoods */}
               {questionIndex === 4 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 5 of 16</div>
@@ -1098,7 +1125,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q6: Offerings */}
               {questionIndex === 5 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 6 of 16</div>
@@ -1113,7 +1139,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q7: Differentiation */}
               {questionIndex === 6 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 7 of 16</div>
@@ -1128,7 +1153,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q8: Pricing */}
               {questionIndex === 7 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 8 of 16</div>
@@ -1143,7 +1167,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q9: Target customers */}
               {questionIndex === 8 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 9 of 16</div>
@@ -1157,7 +1180,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q10: Customer persona */}
               {questionIndex === 9 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 10 of 16</div>
@@ -1172,7 +1194,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q11: Budget */}
               {questionIndex === 10 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 11 of 16</div>
@@ -1186,7 +1207,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q12: Funding */}
               {questionIndex === 11 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 12 of 16</div>
@@ -1200,7 +1220,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q13: Staffing */}
               {questionIndex === 12 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 13 of 16</div>
@@ -1214,7 +1233,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q14: Space needs */}
               {questionIndex === 13 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 14 of 16</div>
@@ -1228,7 +1246,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q15: Timeline */}
               {questionIndex === 14 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 15 of 16</div>
@@ -1242,7 +1259,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Q16: Experience */}
               {questionIndex === 15 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Question 16 of 16</div>
@@ -1297,15 +1313,11 @@ export default function Home() {
             Building your plan
           </p>
 
-          {/* 5-stage vertical stepper */}
           <div className="relative">
-            {/* connecting line */}
             <div className="absolute left-4 top-4 bottom-4 w-px bg-white/10" />
-
             <div className="space-y-6">
               {pipelineStages.map((s, i) => (
                 <div key={i} className="flex items-center gap-4 relative">
-                  {/* stage indicator */}
                   <div className="relative z-10 w-8 h-8 shrink-0 flex items-center justify-center">
                     {s.status === "complete" ? (
                       <motion.div
@@ -1327,7 +1339,6 @@ export default function Home() {
                       <div className="w-8 h-8 rounded-full border-2 border-white/20 bg-noir" />
                     )}
                   </div>
-
                   <div>
                     <p className={`font-dm text-sm transition-colors ${
                       s.status === "complete" ? "text-gold" :
@@ -1351,7 +1362,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Rotating message */}
           <div className="mt-10 text-center">
             <AnimatePresence mode="wait">
               <motion.p
@@ -1371,117 +1381,157 @@ export default function Home() {
     );
   }
 
-  // ── REPORT ─────────────────────────────────────────────────
+  // ── REPORT DASHBOARD ───────────────────────────────────────
 
   if (stage === "report" && report) {
-    const scorecard = report.marketScan?.feasibilityScorecard;
+    const bp = report.businessPlan;
+    const ms = report.marketScan;
+    const fin = bp?.financials;
+    const recommendedScenario = fin?.recommendedScenario ?? "base";
+    const selectedScenario = fin?.scenarios?.[activeScenario] ?? fin?.scenarios?.[recommendedScenario];
+    const score = typeof report.qualityGate?.readinessScore === "number"
+      ? report.qualityGate.readinessScore
+      : parseInt(String(report.qualityGate?.readinessScore ?? "5"), 10) || 5;
+
+    const monthlyRevAtScale = selectedScenario?.monthlyProjections?.find((projection) => projection.month >= 6)?.revenue ?? 0;
+    const sortedStartupCosts = fin?.startupCosts
+      ? [...fin.startupCosts].sort((a, b) => b.cost - a.cost)
+      : [];
+    const chartStartupCosts = sortedStartupCosts.map((item) => ({
+      ...item,
+      shortLabel: compactStartupCostLabel(item.item),
+    }));
+    const productLabels = ["Offer", "Upsell", "Source"];
+    const operationsLabels = ["Staffing", "Hours", "Supply"];
+
+    const threatColor = (threat: string) => {
+      if (threat === "high") return "text-red-400";
+      if (threat === "medium") return "text-amber-400";
+      return "text-green-400";
+    };
+
+    const confidenceStyles = (level: string) => {
+      if (level === "high") return { text: "text-green-400", fill: "bg-green-400", width: "w-full" };
+      if (level === "medium") return { text: "text-amber-400", fill: "bg-amber-400", width: "w-2/3" };
+      return { text: "text-red-400", fill: "bg-red-400", width: "w-1/3" };
+    };
 
     return (
       <div className="min-h-screen bg-noir text-white pb-24">
-        {/* Header */}
+
+        {/* ── A. HERO HEADER ── */}
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8 }}
-          className="px-6 py-16 text-center border-b border-white/5"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+          className="px-6 py-14 border-b border-white/[0.06]"
+          style={{ background: "radial-gradient(ellipse 70% 60% at 50% 0%, rgba(212,168,83,0.06) 0%, transparent 70%)" }}
         >
-          <div className="font-dm text-xs text-gold/60 uppercase tracking-[0.3em] mb-4">
-            Business Plan
-          </div>
-          <h1 className="font-playfair text-5xl md:text-6xl text-white mb-4">
-            {report.businessName}
-          </h1>
-          <div
-            className="w-20 h-px mx-auto"
-            style={{ background: "linear-gradient(90deg, transparent, #D4A853, transparent)" }}
-          />
-        </motion.div>
+          <div className="max-w-3xl mx-auto">
+            <div className="font-dm text-xs text-gold/50 uppercase tracking-[0.3em] mb-4 text-center">
+              Business Plan · LA Launch
+            </div>
 
-        {/* TOC (desktop only) */}
-        <div className="hidden xl:block fixed left-6 top-1/3 space-y-2 z-40">
-          {["quality-gate", "market-scan", "business-plan", "pitch-deck"].map((id, i) => (
-            <button
-              key={id}
-              onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" })}
-              className="block font-dm text-xs text-white/30 hover:text-gold transition-colors text-left"
-            >
-              {["Quality Gate", "Market Scan", "Business Plan", "Pitch Deck"][i]}
-            </button>
-          ))}
-        </div>
+            {/* Name + gauge row */}
+            <div className="flex flex-col md:flex-row items-center md:items-start gap-6 mb-10">
+              <div className="shrink-0">
+                <ReadinessGauge score={score} />
+                <div className="font-dm text-xs text-white/40 text-center mt-1">Readiness</div>
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h1 className="font-playfair text-5xl md:text-6xl text-white leading-tight mb-2">
+                  {report.businessName}
+                </h1>
+                {report.qualityGate?.readinessLabel && (
+                  <p className="font-dm text-sm text-white/40">{report.qualityGate.readinessLabel}</p>
+                )}
+              </div>
+            </div>
 
-        <div className="max-w-3xl mx-auto px-6 pt-12 space-y-6">
+            {/* 3 financial hero stats */}
+            {fin && (
+              <div className="grid grid-cols-3 gap-4">
+                <StatCallout
+                  label="Total Startup Cost"
+                  value={`$${(fin.totalStartupCost ?? 0).toLocaleString()}`}
+                  color="gold"
+                />
+                <StatCallout
+                  label="Monthly Revenue (Mo 6)"
+                  value={formatCurrency(monthlyRevAtScale)}
+                  color="gold"
+                />
+                <StatCallout
+                  label="Break-even Month"
+                  value={formatBreakEven(selectedScenario?.breakEvenMonth)}
+                  color="gold"
+                />
+              </div>
+            )}
 
-          {/* Section nav chips */}
-          {(() => {
-            const sections = [
-              { id: "quality-gate", label: "Quality Gate" },
-              { id: "market-scan", label: "Market Scan" },
-              { id: "business-plan", label: "Business Plan" },
-              { id: "pitch-deck", label: "Pitch Deck" },
-              { id: "funding", label: "Funding" },
-              { id: "permits", label: "Permits" },
-              { id: "next-steps", label: "Next Steps" },
-              { id: "risks", label: "Risks" },
-            ];
-            return (
-              <div className="flex flex-wrap gap-2 pb-2">
-                {sections.map(({ id, label }) => (
-                  <button
-                    key={id}
-                    onClick={() => openAndScrollTo(id)}
-                    className={`font-dm text-xs rounded-full px-3 py-1.5 cursor-pointer transition-colors duration-200 border ${
-                      openSections[id]
-                        ? "border-gold/40 text-gold bg-white/[0.04]"
-                        : "border-white/10 text-white/50 bg-white/[0.04] hover:border-gold/30 hover:text-gold"
-                    }`}
-                  >
-                    {label}
-                  </button>
+            {/* Section confidence bars */}
+            {report.qualityGate?.sectionConfidence && (
+              <div className="mt-8 space-y-3">
+                {Object.entries(report.qualityGate.sectionConfidence).map(([section, level]) => (
+                  <div key={section} className="flex items-center gap-4">
+                    <span className="font-dm text-base text-white w-32 shrink-0">
+                      {section.replace(/([A-Z])/g, " $1").trim()}
+                    </span>
+                    <div className="h-6 w-full rounded-full bg-white/5 overflow-hidden">
+                      <div className={`h-full rounded-full ${confidenceStyles(level).fill} ${confidenceStyles(level).width}`} />
+                    </div>
+                    <span className={`font-dm text-sm capitalize ${confidenceStyles(level).text}`}>
+                      {level}
+                    </span>
+                  </div>
                 ))}
               </div>
-            );
-          })()}
+            )}
 
-          {/* Section 1: Input Quality Gate */}
-          <SectionCard title="Input Quality Gate" delay={0} id="quality-gate" open={openSections["quality-gate"]} onToggle={() => toggleSection("quality-gate")}>
-            <div className="space-y-6">
-              <StatBlock label="Readiness Score" value={report.qualityGate?.readinessScore ?? "N/A"} />
+            {/* Top gaps */}
+            {report.qualityGate?.topGaps?.length > 0 && (
+              <div className="mt-8">
+                <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-4">Top Gaps</div>
+                <ol className="space-y-3">
+                  {report.qualityGate.topGaps.map((gap, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span className="font-dm text-base text-white/55 shrink-0">{i + 1}.</span>
+                      <span className="text-base leading-relaxed shrink-0">⚠</span>
+                      <p className="font-dm text-base text-white/70 leading-relaxed">{gap}</p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        </motion.div>
 
-              {report.qualityGate?.unreliableSectionsWarning && (
-                <div className="border border-amber-500/30 bg-amber-500/5 rounded-xl p-4">
-                  <div className="font-dm text-xs text-amber-400/70 uppercase tracking-widest mb-2">Reliability Warning</div>
-                  <p className="font-dm text-sm text-amber-200/80 leading-relaxed">
-                    {report.qualityGate.unreliableSectionsWarning}
-                  </p>
-                </div>
-              )}
+        {/* ── CARDS ── */}
+        <div className="max-w-3xl mx-auto px-6 pt-10 space-y-6">
 
-              {report.qualityGate?.topGaps?.length > 0 && (
-                <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">
-                    Top Gaps to Address
-                  </div>
-                  <ol className="space-y-3">
-                    {report.qualityGate.topGaps.map((gap, i) => (
-                      <li key={i} className="flex gap-3">
-                        <span className="font-playfair text-lg text-gold/40 w-6 shrink-0">{i + 1}</span>
-                        <p className="font-dm text-sm text-white/70 leading-relaxed pt-0.5">{gap}</p>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-            </div>
-          </SectionCard>
-
-          {/* Section 2: LA Market Scan */}
-          <SectionCard title="LA Market Scan & Feasibility" delay={0.05} id="market-scan" open={openSections["market-scan"]} onToggle={() => toggleSection("market-scan")}>
+          {/* ── B. MARKET SCAN ── */}
+          <SectionCard title="Market Scan" delay={0.1} id="market-scan" open={openSections["market-scan"]} onToggle={() => toggleSection("market-scan")}>
             <div className="space-y-8">
-              {/* Feasibility scorecard */}
-              {scorecard && (
+
+              {/* Verdict */}
+              {ms?.verdict && (
+                <div className="border-l-4 border-gold pl-5 py-1">
+                  <p className="font-playfair text-lg text-gold leading-snug">{ms.verdict}</p>
+                </div>
+              )}
+
+              {/* Target customer */}
+              {ms?.targetCustomer && (
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3">
+                  <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-1">Target Customer</div>
+                  <p className="font-dm text-sm text-white/70">{ms.targetCustomer}</p>
+                </div>
+              )}
+
+              {/* Feasibility bars */}
+              {ms?.feasibility && (
                 <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-4">Feasibility Scorecard</div>
+                  <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-4">Feasibility Scores (5 = best)</div>
                   <div className="space-y-3">
                     {[
                       { label: "Demand", key: "demand" },
@@ -1491,67 +1541,69 @@ export default function Home() {
                       { label: "Regulatory Risk", key: "regulatoryRisk" },
                       { label: "Timeline Realism", key: "timelineRealism" },
                     ].map(({ label, key }) => (
-                      <FeasibilityBar key={key} label={label} value={scorecard[key as keyof typeof scorecard] as number} />
+                      <FeasibilityBar key={key} label={label} value={ms.feasibility[key as keyof typeof ms.feasibility] as number} />
                     ))}
                   </div>
-                  {scorecard.scorecardNotes && (
-                    <p className="font-dm text-xs text-white/50 mt-3 leading-relaxed">{scorecard.scorecardNotes}</p>
-                  )}
                 </div>
               )}
 
-              {/* Executive summary bullets */}
-              {report.marketScan?.executiveSummary?.length > 0 && (
+              {/* Competitors table */}
+              {ms?.topCompetitors?.length > 0 && (
                 <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Go / No-Go Analysis</div>
+                  <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-3">Top Competitors</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="text-left font-dm text-xs text-gold/50 pb-2 pr-4 uppercase tracking-wider">Name</th>
+                          <th className="text-left font-dm text-xs text-gold/50 pb-2 pr-4 uppercase tracking-wider w-24">Threat</th>
+                          <th className="text-left font-dm text-xs text-gold/50 pb-2 uppercase tracking-wider">Weakness</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ms.topCompetitors.map((c, i) => (
+                          <tr key={i} className="border-b border-white/5">
+                            <td className="py-2.5 pr-4 font-dm text-white/80 align-top text-sm">{c.name}</td>
+                            <td className={`py-2.5 pr-4 font-dm text-xs align-top capitalize ${threatColor(c.threat)}`}>{c.threat}</td>
+                            <td className="py-2.5 font-dm text-white/50 align-top text-xs">{c.weakness}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Location rec */}
+              {ms?.locationRec && (
+                <div className="bg-noir/60 border border-gold/15 rounded-xl p-5">
+                  <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-3">Location Recommendation</div>
                   <div className="space-y-2">
-                    {report.marketScan.executiveSummary.map((bullet, i) => (
-                      <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3">
-                        <p className="font-dm text-sm text-white/70 leading-relaxed">{bullet}</p>
-                      </div>
-                    ))}
+                    <div>
+                      <span className="font-dm text-xs text-white/40">Primary: </span>
+                      <span className="font-dm text-sm text-white font-semibold">{ms.locationRec.primary}</span>
+                    </div>
+                    <div>
+                      <span className="font-dm text-xs text-white/40">Secondary: </span>
+                      <span className="font-dm text-sm text-white/70">{ms.locationRec.secondary}</span>
+                    </div>
+                    <div>
+                      <span className="font-dm text-xs text-white/40">Rent: </span>
+                      <span className="font-dm text-sm text-gold">{ms.locationRec.monthlyRent}</span>
+                    </div>
+                    <p className="font-dm text-xs text-white/50 mt-2">{ms.locationRec.whyHere}</p>
                   </div>
                 </div>
               )}
 
-              {/* Location analysis */}
-              {report.marketScan?.locationAnalysis && (
-                <div className="space-y-4">
-                  <StatBlock label="Est. Monthly Rent" value={report.marketScan.locationAnalysis.estimatedMonthlyRent} />
-                  <LabeledCard label="Recommended Areas" value={report.marketScan.locationAnalysis.recommendedAreas} />
-                  <LabeledCard label="Foot Traffic" value={report.marketScan.locationAnalysis.footTrafficNotes} />
-                  <LabeledCard label="Proximity Advantage" value={report.marketScan.locationAnalysis.proximityAdvantage} />
-                </div>
-              )}
-
-              {/* Customer & demand */}
-              {report.marketScan?.customerAndDemand && (
-                <div className="space-y-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Customer & Demand</div>
-                  {Object.entries(report.marketScan.customerAndDemand).map(([k, v]) => (
-                    <LabeledCard key={k} label={k.replace(/([A-Z])/g, " $1").trim()} value={v} />
-                  ))}
-                </div>
-              )}
-
-              {/* Competitive landscape */}
-              {report.marketScan?.competitiveLandscape && (
-                <div className="space-y-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Competitive Landscape</div>
-                  {Object.entries(report.marketScan.competitiveLandscape).map(([k, v]) => (
-                    <LabeledCard key={k} label={k.replace(/([A-Z])/g, " $1").trim()} value={v} />
-                  ))}
-                </div>
-              )}
-
-              {/* Next 5 actions */}
-              {report.marketScan?.next5Actions?.length > 0 && (
+              {/* Next 3 actions */}
+              {ms?.next3Actions?.length > 0 && (
                 <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Next 5 Actions</div>
+                  <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-3">Next 3 Actions</div>
                   <ol className="space-y-3">
-                    {report.marketScan.next5Actions.map((action, i) => (
+                    {ms.next3Actions.map((action, i) => (
                       <li key={i} className="flex gap-3">
-                        <span className="font-playfair text-lg text-gold/40 w-6 shrink-0">{i + 1}</span>
+                        <span className="font-playfair text-xl text-gold/30 w-6 shrink-0 leading-tight">{i + 1}</span>
                         <p className="font-dm text-sm text-white/70 leading-relaxed pt-0.5">{action}</p>
                       </li>
                     ))}
@@ -1561,317 +1613,537 @@ export default function Home() {
             </div>
           </SectionCard>
 
-          {/* Section 3: Business Plan */}
-          <SectionCard title="Business Plan" delay={0.1} id="business-plan" open={openSections["business-plan"]} onToggle={() => toggleSection("business-plan")}>
+          {/* ── C. BUSINESS PLAN ── */}
+          <SectionCard title="Business Plan" delay={0.15} id="business-plan" open={openSections["business-plan"]} onToggle={() => toggleSection("business-plan")}>
             <div className="space-y-8">
-              {/* Executive summary — 3 paragraphs */}
-              {report.businessPlan?.executiveSummary && (
-                <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-4">Executive Summary</div>
-                  <blockquote className="border-l-2 border-gold/30 pl-6 space-y-4 min-h-[4rem]">
-                    {(report.businessPlan.executiveSummary || "")
-                      .split(/\n\n+/)
-                      .filter(p => p.trim())
-                      .map((para, i) => (
-                        <p key={i} className="font-dm text-white/70 leading-relaxed">{para}</p>
+
+              {/* Exec summary */}
+              {bp?.executiveSummary && (
+                <blockquote className="border-l-2 border-gold/40 pl-6">
+                  <p className="font-dm text-white/75 leading-relaxed text-base">{bp.executiveSummary}</p>
+                </blockquote>
+              )}
+
+              {/* Product / GoToMarket / Operations */}
+              <div className="space-y-4">
+                {bp?.product && (
+                  <div className="bg-noir/60 border border-white/[0.07] rounded-xl p-6">
+                    <div className="font-dm text-sm text-gold uppercase tracking-[0.2em]">Product</div>
+                    <p className="mt-4 font-mono text-xl text-[#D4A853] leading-relaxed max-w-2xl">{bp.product.headline}</p>
+                    <div className="mt-6 space-y-3 max-w-3xl">
+                      {bp.product.bullets.map((bullet, i) => (
+                        <div key={i} className="grid grid-cols-[88px_1fr] gap-4 items-start">
+                          <span className="font-dm text-[11px] uppercase tracking-[0.18em] text-white/35">
+                            {productLabels[i] ?? `Point ${i + 1}`}
+                          </span>
+                          <p className="font-dm text-base text-white/82 leading-7">
+                            {truncateWords(bullet, 8)}
+                          </p>
+                        </div>
                       ))}
-                  </blockquote>
-                </div>
-              )}
+                    </div>
+                    <div className="mt-6 pt-5 border-t border-white/6">
+                      <p className="italic text-base text-[#D4A853]/80 leading-7 max-w-3xl">{truncateWords(bp.product.moat, 20)}</p>
+                    </div>
+                  </div>
+                )}
+                {bp?.goToMarket && (
+                  <div className="bg-noir/60 border border-white/[0.07] rounded-xl p-6">
+                    <div className="font-dm text-sm text-gold uppercase tracking-[0.2em]">Go-to-Market</div>
+                    <div className="mt-6 space-y-4 max-w-3xl">
+                      {bp.goToMarket.phases.map((phase, i) => (
+                        <div key={`${phase.label}-${i}`} className="flex items-start gap-3">
+                          <div className="flex flex-col items-center shrink-0">
+                            <div className="w-2.5 h-2.5 rounded-full bg-[#D4A853]" />
+                            {i < bp.goToMarket.phases.length - 1 && <div className="w-px h-10 bg-[#D4A853]/30" />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-lg font-medium text-white">{phase.label}</div>
+                            <div className="text-base text-white/60 leading-7">{truncateWords(phase.action, 10)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {bp.goToMarket.channels.length > 0 && (
+                      <div className="mt-6">
+                        <div className="font-dm text-[11px] uppercase tracking-[0.18em] text-white/35 mb-2">Top Channels</div>
+                        <div className="flex flex-wrap gap-2">
+                        {bp.goToMarket.channels.slice(0, 3).map((channel, i) => (
+                          <span key={`${channel}-${i}`} className="px-3 py-1 text-sm rounded-full border border-[#D4A853]/30 text-[#D4A853]/70">
+                            {truncateWords(channel, 5)}
+                          </span>
+                        ))}
+                        {bp.goToMarket.channels.length > 3 && (
+                          <span className="px-3 py-1 text-sm rounded-full border border-white/10 text-white/35">
+                            +{bp.goToMarket.channels.length - 3} more
+                          </span>
+                        )}
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-6 pt-5 border-t border-white/6">
+                      <p className="italic text-base text-[#D4A853]/80 leading-7 max-w-3xl">{truncateWords(bp.goToMarket.retention, 20)}</p>
+                    </div>
+                  </div>
+                )}
+                {bp?.operations && (
+                  <div className="bg-noir/60 border border-white/[0.07] rounded-xl p-6">
+                    <div className="font-dm text-sm text-gold uppercase tracking-[0.2em]">Operations</div>
+                    <div className="mt-6 space-y-5 max-w-3xl">
+                      <div className="grid grid-cols-[88px_1fr] gap-4 items-start">
+                        <span className="font-dm text-[11px] uppercase tracking-[0.18em] text-white/35">Where</span>
+                        <div>
+                          <div className="font-dm text-xl text-white leading-8">{truncateWords(bp.operations.locationName, 12)}</div>
+                          <div className="font-dm text-base text-white/60 leading-7 mt-1">{truncateWords(bp.operations.locationWhy, 20)}</div>
+                        </div>
+                      </div>
+                      {bp.operations.bullets.map((bullet, i) => (
+                        <div key={i} className="grid grid-cols-[88px_1fr] gap-4 items-start">
+                          <span className="font-dm text-[11px] uppercase tracking-[0.18em] text-white/35">
+                            {operationsLabels[i] ?? `Step ${i + 1}`}
+                          </span>
+                          <p className="font-dm text-base text-white/82 leading-7">{truncateWords(bullet, 14)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
 
-              {/* Product/service */}
-              {report.businessPlan?.productService && (
-                <div className="space-y-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Product / Service</div>
-                  <LabeledCard label="Offerings" value={report.businessPlan.productService.offerings} />
-                  <LabeledCard label="Pricing Logic" value={report.businessPlan.productService.pricingLogic} />
-                  <LabeledCard label="Differentiation" value={report.businessPlan.productService.differentiation} />
-                </div>
-              )}
-
-              {/* Go to market */}
-              {report.businessPlan?.goToMarket && (
-                <div className="space-y-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Go-to-Market</div>
-                  <LabeledCard label="Channels" value={report.businessPlan.goToMarket.channels} />
-                  <LabeledCard label="Launch Plan" value={report.businessPlan.goToMarket.launchPlan} />
-                  <LabeledCard label="Retention" value={report.businessPlan.goToMarket.retention} />
-                </div>
-              )}
-
-              {/* Operations */}
-              {report.businessPlan?.operationsPlan && (
-                <div className="space-y-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Operations Plan</div>
-                  <LabeledCard label="Location" value={report.businessPlan.operationsPlan.location} />
-                  <LabeledCard label="Staffing" value={report.businessPlan.operationsPlan.staffing} />
-                  <LabeledCard label="Workflow" value={report.businessPlan.operationsPlan.workflow} />
-                </div>
-              )}
-
-              {/* Milestones — horizontal timeline */}
-              {report.businessPlan?.milestones && (
+              {/* Milestones timeline */}
+              {bp?.milestones?.length > 0 && (
                 <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-4">Milestones</div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {[
-                      { label: "Days 0–30", value: report.businessPlan.milestones.days0to30 },
-                      { label: "Days 31–90", value: report.businessPlan.milestones.days31to90 },
-                      { label: "Days 91–180", value: report.businessPlan.milestones.days91to180 },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="bg-noir/60 border border-gold/20 rounded-xl p-4">
-                        <div className="font-dm text-xs text-gold uppercase tracking-widest mb-2">{label}</div>
-                        {Array.isArray(value) ? (
-                          <ul className="space-y-1.5">
-                            {value.map((bullet: string, i: number) => (
-                              <li key={i} className="flex gap-2">
+                  <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-4">Milestones</div>
+                  <div className="relative">
+                    {/* connecting line */}
+                    <div className="hidden md:block absolute top-5 left-[calc(16.66%-1px)] right-[calc(16.66%-1px)] h-px bg-gold/20" />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {bp.milestones.map((m, i) => (
+                        <div key={i} className="relative">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-2.5 h-2.5 rounded-full bg-gold shrink-0" />
+                            <div className="font-dm text-xs text-gold uppercase tracking-widest">{m.period}</div>
+                          </div>
+                          <ul className="space-y-1.5 pl-5">
+                            {m.items.map((item, j) => (
+                              <li key={j} className="flex gap-2">
                                 <span className="text-gold/30 shrink-0 mt-1">·</span>
-                                <p className="font-dm text-xs text-white/70 leading-relaxed">{bullet}</p>
+                                <p className="font-dm text-xs text-white/65 leading-relaxed">{item}</p>
                               </li>
                             ))}
                           </ul>
-                        ) : (
-                          <p className="font-dm text-sm text-white/70 leading-relaxed">{value as string}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-6">
+                {bp?.permits?.length > 0 && (
+                  <div>
+                    <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-3">Permits Required</div>
+                    <div className="space-y-3">
+                      {bp.permits.map((permit, i) => {
+                        const permitId = `${permit.name}-${i}`;
+                        const isOpen = openPermitActions[permitId] ?? false;
+                        return (
+                          <div key={permitId} className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+                            <button
+                              onClick={() => togglePermitAction(permitId)}
+                              className="w-full text-left"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-[#D4A853] text-lg">✓</span>
+                                <span className="font-dm font-medium text-white flex-1">{permit.name}</span>
+                                <span className="font-dm text-sm text-[#D4A853]">{formatCurrency(permit.cost)}</span>
+                                <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-white/40">
+                                  {permit.timelineWeeks} wks
+                                </span>
+                                <span className={`inline-block text-white/35 transition-transform ${isOpen ? "rotate-180" : ""}`}>⌄</span>
+                              </div>
+                            </button>
+                            {isOpen && (
+                              <div className="pl-7 pt-2 text-sm text-white/40">
+                                {permit.action}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {bp?.funding?.length > 0 && (
+                  <div>
+                    <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-3">Funding Options</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {bp.funding.map((funding, i) => (
+                        <div key={`${funding.source}-${i}`} className="bg-[#1a1a1a] rounded-lg p-4 border-t-2 border-[#D4A853]">
+                          <div className="text-xs uppercase tracking-wider text-[#D4A853]/60 mb-1">{funding.source}</div>
+                          <div className="text-2xl font-bold text-[#D4A853]">{formatCurrency(funding.amount)}</div>
+                          <div className="text-sm text-white/40 mt-1">{funding.fit}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {bp?.risks?.length > 0 && (
+                  <div>
+                    <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-3">Risks & Mitigations</div>
+                    <div className="divide-y divide-white/5">
+                      {bp.risks.map((risk, i) => (
+                        <div key={`${risk.risk}-${i}`} className="flex items-start gap-3 py-3">
+                          <p className="flex-1 text-sm text-white/70">{risk.risk}</p>
+                          <span className="text-[#D4A853] mt-0.5 shrink-0">→</span>
+                          <p className="flex-1 text-sm text-white/40">{risk.mitigation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+
+          {/* ── D. FINANCIAL MODEL ── */}
+          {fin && (
+            <SectionCard title="Financial Model" delay={0.2} id="financials" open={openSections["financials"]} onToggle={() => toggleSection("financials")}>
+              <div className="space-y-10">
+                <div className="rounded-2xl border border-gold/15 bg-noir/70 p-5 space-y-5">
+                  {(bp.financialWarnings.length > 0 || bp.financialConsistency !== "aligned") && (
+                    <div className={`rounded-xl px-4 py-4 border ${
+                      bp.financialConsistency === "optimistic"
+                        ? "border-amber-400/20 bg-amber-400/8"
+                        : "border-white/10 bg-white/[0.03]"
+                    }`}>
+                      <div className="font-dm text-xs uppercase tracking-widest text-gold/70">
+                        Why this may not be a good idea yet
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {bp.financialWarnings.map((warning, i) => (
+                          <p key={i} className="text-sm text-white/75 leading-6">
+                            {warning}
+                          </p>
+                        ))}
+                        {bp.financialConsistency === "optimistic" && (
+                          <div className="inline-flex rounded-full border border-amber-400/20 px-3 py-1 text-xs uppercase tracking-widest text-amber-300/80">
+                            Best-case only warning
+                          </div>
                         )}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Risks table */}
-              {report.businessPlan?.risksAndMitigations?.length > 0 && (
-                <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Risks & Mitigations</div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-white/10">
-                          <th className="text-left font-dm text-xs text-gold/60 pb-2 pr-4 uppercase tracking-wider w-1/3">Risk</th>
-                          <th className="text-left font-dm text-xs text-gold/60 pb-2 pr-4 uppercase tracking-wider w-1/3">Trigger</th>
-                          <th className="text-left font-dm text-xs text-gold/60 pb-2 uppercase tracking-wider w-1/3">Response</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.businessPlan.risksAndMitigations.map((r, i) => (
-                          <tr key={i} className="border-b border-white/5">
-                            <td className="py-3 pr-4 font-dm text-white/70 align-top">{r.risk}</td>
-                            <td className="py-3 pr-4 font-dm text-white/50 align-top text-xs">{r.trigger}</td>
-                            <td className="py-3 font-dm text-white/50 align-top text-xs">{r.response}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-            </div>
-          </SectionCard>
-
-          {/* Section 4: Pitch Deck */}
-          <SectionCard title="Pitch Deck" delay={0.2} id="pitch-deck" open={openSections["pitch-deck"]} onToggle={() => toggleSection("pitch-deck")}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {report.pitchDeck?.slides?.map((slide) => (
-                <div
-                  key={slide.slideNumber}
-                  className="bg-noir/60 border border-white/[0.08] rounded-xl p-5 hover:border-gold/20 transition-colors"
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="font-playfair text-xl text-gold/40">{slide.slideNumber}</span>
-                    <h3 className="font-playfair text-base text-white leading-tight">{slide.title}</h3>
-                  </div>
-                  <ul className="space-y-1.5 mb-4">
-                    {slide.bullets.map((bullet, i) => (
-                      <li key={i} className="flex gap-2">
-                        <span className="text-gold/30 shrink-0">·</span>
-                        <p className="font-dm text-xs text-white/60 leading-relaxed">{bullet}</p>
-                      </li>
-                    ))}
-                  </ul>
-                  <details className="group">
-                    <summary className="cursor-pointer font-dm text-xs text-white/30 hover:text-white/50 uppercase tracking-widest list-none">
-                      ▸ Speaker Notes
-                    </summary>
-                    <p className="mt-2 font-dm text-xs text-white/40 leading-relaxed italic">
-                      {slide.speakerNotes}
-                    </p>
-                  </details>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
-
-          {/* Shared: Funding Options */}
-          {report.fundingOptions?.length > 0 && (
-            <SectionCard title="Funding Options" delay={0.25} id="funding" open={openSections["funding"]} onToggle={() => toggleSection("funding")}>
-              <div className="space-y-4">
-                {report.fundingOptions.map((opt, i) => (
-                  <div key={i} className="border border-white/[0.08] rounded-xl p-5 hover:border-gold/20 transition-colors">
-                    <div className="flex items-start justify-between gap-4 mb-2">
-                      <div className="font-dm font-semibold text-white">{opt.name}</div>
-                      <div className="font-playfair text-gold text-sm shrink-0">{opt.amount}</div>
                     </div>
-                    <p className="font-dm text-sm text-white/60 mb-2 leading-relaxed">{opt.description}</p>
-                    <p className="font-dm text-xs text-gold/60 leading-relaxed">{opt.fit}</p>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
+                  )}
 
-          {/* Shared: Permits */}
-          {report.permits?.length > 0 && (
-            <SectionCard title="Required Permits" delay={0.3} id="permits" open={openSections["permits"]} onToggle={() => toggleSection("permits")}>
-              <div className="space-y-4">
-                {report.permits.map((permit, i) => (
-                  <div key={i} className="border border-white/[0.08] rounded-xl p-5 hover:border-gold/20 transition-colors">
-                    <div className="flex items-start justify-between gap-4 mb-1.5">
-                      <div className="font-dm font-semibold text-white text-sm min-w-0">{permit.name}</div>
-                      <div className="text-right max-w-[45%] break-words shrink-0">
-                        <div className="font-dm text-xs text-gold">{permit.estimatedCost}</div>
-                        <div className="font-dm text-xs text-white/30">{permit.timeline}</div>
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="font-dm text-xs text-gold/50 uppercase tracking-widest">Scenario View</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(["downside", "base", "upside"] as const).map((scenario) => (
+                          <button
+                            key={scenario}
+                            onClick={() => setActiveScenario(scenario)}
+                            className={`px-3 py-1.5 rounded-full border text-xs uppercase tracking-widest transition-colors ${
+                              activeScenario === scenario
+                                ? "border-gold bg-gold/10 text-gold"
+                                : "border-white/10 text-white/40 hover:border-white/20 hover:text-white/60"
+                            }`}
+                          >
+                            {scenario}
+                            {scenario === recommendedScenario ? " *" : ""}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                    <p className="font-dm text-xs text-white/50 leading-relaxed">{permit.description}</p>
+                    <div className="text-left md:text-right">
+                      <div className="font-dm text-xs text-white/35 uppercase tracking-widest">Most realistic for this idea</div>
+                      <div className="mt-1 font-playfair text-2xl text-white capitalize">{recommendedScenario}</div>
+                    </div>
                   </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
 
-          {/* Shared: Next Steps */}
-          {report.nextSteps?.length > 0 && (
-            <SectionCard title="Next Steps" delay={0.35} id="next-steps" open={openSections["next-steps"]} onToggle={() => toggleSection("next-steps")}>
-              <ol className="space-y-4">
-                {report.nextSteps.map((step, i) => (
-                  <li key={i} className="flex gap-4">
-                    <div className="font-playfair text-2xl text-gold/30 leading-none w-8 shrink-0">{i + 1}</div>
-                    <p className="font-dm text-white/70 leading-relaxed pt-0.5">{step}</p>
-                  </li>
-                ))}
-              </ol>
-            </SectionCard>
-          )}
+                  {fin.assumptionPressure.length > 0 && (
+                    <div>
+                      <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-3">What the numbers depend on</div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {fin.assumptionPressure.map((pressure, i) => (
+                          <div key={i} className="rounded-xl border border-amber-400/15 bg-amber-400/5 px-4 py-3 text-sm text-white/72 leading-6">
+                            {truncateWords(pressure, 10)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-          {/* Shared: Risk Factors */}
-          {report.riskFactors?.length > 0 && (
-            <SectionCard title="Risk Factors" delay={0.4} id="risks" open={openSections["risks"]} onToggle={() => toggleSection("risks")}>
-              <div className="space-y-3">
-                {report.riskFactors.map((risk, i) => (
-                  <div key={i} className="border border-amber-500/20 bg-amber-500/5 rounded-xl p-4">
-                    <p className="font-dm text-sm text-amber-200/70 leading-relaxed">{risk}</p>
+                  <div className="rounded-xl border border-red-400/15 bg-red-400/5 px-4 py-3">
+                    <div className="font-dm text-xs uppercase tracking-widest text-red-300/80">This only works if</div>
+                    <p className="mt-2 text-sm text-white/72 leading-6">{fin.credibilityNote}</p>
                   </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
-
-          {/* Coming Soon Section */}
-          <motion.div
-            initial={{ opacity: 0, y: 32 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="pt-4"
-          >
-            <div className="flex items-center gap-4 mb-6">
-              <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(212,168,83,0.3))" }} />
-              <span className="font-playfair text-base text-white/30 whitespace-nowrap">What&apos;s Coming to LA Launch</span>
-              <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, rgba(212,168,83,0.3), transparent)" }} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                {
-                  icon: "🔍",
-                  title: "Live Competitor Scan",
-                  description: "Real-time web search for actual businesses in your chosen neighborhood — menus, pricing, reviews, and market gaps.",
-                },
-                {
-                  icon: "🏢",
-                  title: "Real Estate Listings",
-                  description: "Browse available commercial spaces matching your size, budget, and neighborhood — linked to actual listings.",
-                },
-                {
-                  icon: "💬",
-                  title: "Ask Your Advisor",
-                  description: "Chat with an AI that knows your full plan — stress-test assumptions, explore pivots, get specific answers.",
-                },
-                {
-                  icon: "🤝",
-                  title: "Investor Matching",
-                  description: "Surface LA-area angels and micro-VCs aligned to your industry and stage, with warm intro context.",
-                },
-                {
-                  icon: "⚡",
-                  title: "One-Click Applications",
-                  description: "Pre-fill and submit directly to Kiva LA, LISC LA, and SBA Microloan programs from your plan data.",
-                },
-              ].map(({ icon, title, description }) => (
-                <div
-                  key={title}
-                  className="border border-white/5 bg-white/[0.02] rounded-2xl p-6 relative overflow-hidden opacity-70 cursor-not-allowed"
-                >
-                  {/* Watermark */}
-                  <div
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
-                    style={{ opacity: 0.03, fontSize: "4rem", fontFamily: "serif", transform: "rotate(-20deg)", letterSpacing: "0.5em", color: "#D4A853" }}
-                  >
-                    FUTURE
-                  </div>
-                  {/* Lock + badge */}
-                  <div className="absolute top-4 right-4 flex items-center gap-2">
-                    <span className="font-dm text-[10px] text-gold bg-gold/10 border border-gold/20 rounded-full px-2 py-0.5 uppercase tracking-widest">Coming Soon</span>
-                    <span className="text-white/30 text-sm">🔒</span>
-                  </div>
-                  <div className="text-2xl mb-3">{icon}</div>
-                  <h3 className="font-playfair text-base text-white/50 mb-2">{title}</h3>
-                  <p className="font-dm text-xs text-white/30 leading-relaxed">{description}</p>
                 </div>
-              ))}
-            </div>
-          </motion.div>
 
-          {/* Footer actions */}
+                {/* Unit economics row */}
+                {fin.unitEconomics && (
+                  <div>
+                    <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-4">Unit Economics</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <StatCallout label="Avg Ticket" value={`$${fin.unitEconomics.avgTicket?.toFixed(2)}`} color="gold" />
+                      <StatCallout label="COGS / Unit" value={`$${fin.unitEconomics.cogs?.toFixed(2)}`} color="white" />
+                      <StatCallout label="Gross Margin" value={`${fin.unitEconomics.grossMarginPct}%`} color="gold" />
+                      <StatCallout label="Daily Break-even" value={`${fin.unitEconomics.dailyTransactionsToBreakEven} txns`} color="white" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Startup costs horizontal bar chart */}
+                {sortedStartupCosts.length > 0 && (
+                  <div>
+                    <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-4">Startup Costs Breakdown</div>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.6, delay: 0.3 }}
+                    >
+                      <ResponsiveContainer width="100%" height={Math.max(180, sortedStartupCosts.length * 36)}>
+                        <BarChart
+                          data={chartStartupCosts}
+                          layout="vertical"
+                          margin={{ top: 0, right: 80, left: 32, bottom: 0 }}
+                        >
+                          <XAxis type="number" hide />
+                          <YAxis
+                            type="category"
+                            dataKey="shortLabel"
+                            width={132}
+                            tick={{ fill: "rgba(255,255,255,0.75)", fontSize: 12, fontFamily: "DM Sans, sans-serif" }}
+                            axisLine={false}
+                            tickLine={false}
+                            tickMargin={14}
+                          />
+                          <Tooltip content={<CostTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+                          <Bar dataKey="cost" fill="#D4A853" radius={[0, 4, 4, 0]}>
+                            <LabelList
+                              dataKey="cost"
+                              position="right"
+                              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                              formatter={(v: any) => `$${Number(v).toLocaleString()}`}
+                              style={{ fill: "rgba(255,255,255,0.45)", fontSize: 11, fontFamily: "DM Sans, sans-serif" }}
+                            />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </motion.div>
+                    <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {sortedStartupCosts.map((item, index) => (
+                        <div key={`${item.item}-${index}`} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="font-dm text-sm text-white">{compactStartupCostLabel(item.item)}</div>
+                              <div className="mt-1 font-dm text-xs text-white/45 leading-5">{item.item}</div>
+                            </div>
+                            <div className="font-dm text-sm text-gold shrink-0">{formatCurrency(item.cost)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 12-month projection line chart */}
+                {selectedScenario?.monthlyProjections?.length > 0 && (
+                  <div>
+                    <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-4">
+                      12-Month P&L Projection · {activeScenario}
+                    </div>
+
+                    {/* Legend */}
+                    <div className="flex flex-wrap gap-4 mb-4">
+                      {[
+                        { color: "#D4A853", label: "Revenue" },
+                        { color: "#8B7355", label: "COGS", dashed: true },
+                        { color: "#666666", label: "OpEx", dashed: true },
+                        { color: "#4ADE80", label: "Net Income" },
+                      ].map(({ color, label, dashed }) => (
+                        <div key={label} className="flex items-center gap-1.5">
+                          <svg width="20" height="10">
+                            <line
+                              x1="0" y1="5" x2="20" y2="5"
+                              stroke={color} strokeWidth="2"
+                              strokeDasharray={dashed ? "4 3" : undefined}
+                            />
+                          </svg>
+                          <span className="font-dm text-xs text-white/40">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.6, delay: 0.4 }}
+                    >
+                      <ResponsiveContainer width="100%" height={260}>
+                        <LineChart
+                          data={selectedScenario.monthlyProjections}
+                          margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                        >
+                          <XAxis
+                            dataKey="month"
+                            tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10, fontFamily: "DM Sans, sans-serif" }}
+                            axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+                            tickLine={false}
+                            label={{ value: "Month", position: "insideBottomRight", fill: "rgba(255,255,255,0.25)", fontSize: 10, offset: -5 }}
+                          />
+                          <YAxis
+                            tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10, fontFamily: "DM Sans, sans-serif" }}
+                            axisLine={false}
+                            tickLine={false}
+                            tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
+                            width={48}
+                          />
+                          <Tooltip content={<ProjectionTooltip />} cursor={{ stroke: "rgba(212,168,83,0.2)", strokeWidth: 1 }} />
+                          {selectedScenario.breakEvenMonth && selectedScenario.breakEvenMonth <= 12 && (
+                            <ReferenceLine
+                              x={selectedScenario.breakEvenMonth}
+                              stroke="#D4A853"
+                              strokeDasharray="4 4"
+                              strokeOpacity={0.5}
+                              label={{ value: `BE`, position: "top", fill: "#D4A853", fontSize: 9, fontFamily: "DM Sans, sans-serif" }}
+                            />
+                          )}
+                          <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#D4A853" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: "#D4A853" }} />
+                          <Line type="monotone" dataKey="cogs" name="COGS" stroke="#8B7355" strokeWidth={1.5} strokeDasharray="5 5" dot={false} />
+                          <Line type="monotone" dataKey="opex" name="OpEx" stroke="#666666" strokeWidth={1.5} strokeDasharray="5 5" dot={false} />
+                          <Line type="monotone" dataKey="netIncome" name="Net Income" stroke="#4ADE80" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: "#4ADE80" }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </motion.div>
+                  </div>
+                )}
+
+                {/* Year 1 summary stats */}
+                  <div>
+                    <div className="font-dm text-xs text-gold/50 uppercase tracking-widest mb-4">Year 1 Summary</div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <StatCallout
+                        label="Year 1 Revenue"
+                        value={formatCurrency(selectedScenario?.year1Revenue)}
+                        color="gold"
+                      />
+                      <StatCallout
+                        label="Year 1 Net Income"
+                        value={formatCurrency(selectedScenario?.year1NetIncome)}
+                        color="green"
+                      />
+                      <StatCallout
+                        label="Total Startup Cost"
+                        value={formatCurrency(fin.totalStartupCost)}
+                        color="white"
+                      />
+                    </div>
+                  </div>
+              </div>
+            </SectionCard>
+          )}
+
+          {/* ── E. PITCH DECK ── */}
+          <SectionCard title="Pitch Deck" delay={0.25} id="pitch-deck" open={openSections["pitch-deck"]} onToggle={() => toggleSection("pitch-deck")}>
+            {report.pitchDeck?.slides?.length > 0 && (
+              <div className="space-y-3">
+                {/* Slide selector tabs */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {report.pitchDeck.slides.map((slide) => (
+                    <button
+                      key={slide.slideNumber}
+                      onClick={() => setActivePitchSlide(slide.slideNumber - 1)}
+                      className={`font-dm text-xs px-3 py-1.5 rounded-full border transition-all duration-200 ${
+                        activePitchSlide === slide.slideNumber - 1
+                          ? "border-gold bg-gold/10 text-gold"
+                          : "border-white/10 text-white/40 hover:border-white/25 hover:text-white/60"
+                      }`}
+                    >
+                      {slide.slideNumber}. {slide.title}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Active slide display */}
+                <AnimatePresence mode="wait">
+                  {report.pitchDeck.slides[activePitchSlide] && (
+                    <motion.div
+                      key={activePitchSlide}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.3 }}
+                      className="bg-noir/60 border border-gold/20 rounded-2xl p-8"
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        <span className="font-playfair text-3xl text-gold/30">
+                          {report.pitchDeck.slides[activePitchSlide].slideNumber}
+                        </span>
+                        <h3 className="font-playfair text-2xl text-white">
+                          {report.pitchDeck.slides[activePitchSlide].title}
+                        </h3>
+                      </div>
+                      <ul className="space-y-4">
+                        {report.pitchDeck.slides[activePitchSlide].bullets.map((bullet, i) => (
+                          <li key={i} className="flex gap-4">
+                            <span className="font-playfair text-lg text-gold/40 shrink-0 leading-tight">·</span>
+                            <p className="font-dm text-base text-white/75 leading-relaxed">{bullet}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Prev / Next */}
+                <div className="flex justify-between items-center pt-2">
+                  <button
+                    onClick={() => setActivePitchSlide((i) => Math.max(0, i - 1))}
+                    disabled={activePitchSlide === 0}
+                    className="font-dm text-sm text-white/30 hover:text-white/60 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                  >
+                    ← Prev
+                  </button>
+                  <span className="font-dm text-xs text-white/25">
+                    {activePitchSlide + 1} / {report.pitchDeck.slides.length}
+                  </span>
+                  <button
+                    onClick={() => setActivePitchSlide((i) => Math.min(report.pitchDeck.slides.length - 1, i + 1))}
+                    disabled={activePitchSlide === report.pitchDeck.slides.length - 1}
+                    className="font-dm text-sm text-white/30 hover:text-white/60 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
+          </SectionCard>
+
+          {/* ── F. FOOTER ── */}
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.4 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
             className="pt-8 text-center space-y-4"
           >
             <div className="flex gap-4 justify-center flex-wrap">
               <button
                 onClick={downloadHTML}
-                className="px-8 py-3.5 border border-gold/30 text-gold font-dm font-semibold text-sm tracking-wider uppercase rounded-full hover:bg-gold/10 transition-all duration-200"
+                className="px-8 py-3.5 bg-gold text-noir font-dm font-semibold text-sm tracking-wider uppercase rounded-full hover:bg-gold/90 transition-all duration-200 hover:scale-105 active:scale-95"
               >
                 Download Report
               </button>
               <button
-                onClick={exportPPTX}
-                disabled={isPptxExporting}
-                className={`px-8 py-3.5 border border-gold/30 text-gold font-dm font-semibold text-sm tracking-wider uppercase rounded-full transition-all duration-200 flex items-center gap-2 ${isPptxExporting ? "opacity-60 cursor-not-allowed" : "hover:bg-gold/10"}`}
+                onClick={resetAll}
+                className="px-8 py-3.5 border border-gold/40 text-gold font-dm font-semibold text-sm tracking-wider uppercase rounded-full hover:bg-gold/10 transition-all duration-200"
               >
-                {isPptxExporting ? (
-                  <>
-                    <motion.span
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                      className="inline-block w-3.5 h-3.5 border-2 border-gold border-t-transparent rounded-full"
-                    />
-                    Exporting...
-                  </>
-                ) : (
-                  "Export to PPTX"
-                )}
+                Start Over
               </button>
             </div>
-            <button
-              onClick={resetAll}
-              className="px-10 py-4 border border-white/10 text-white/40 font-dm font-semibold text-sm tracking-wider uppercase rounded-full hover:text-white/60 hover:border-white/20 transition-all duration-200"
-            >
-              Start Over
-            </button>
             <p className="font-dm text-xs text-white/20">
               Powered by Claude + LA Launch
             </p>
@@ -1888,15 +2160,13 @@ export default function Home() {
 
 function generateHTMLReport(report: ReportData): string {
   const safeStr = (s: unknown) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const scorecard = report.marketScan?.feasibilityScorecard;
   const bp = report.businessPlan;
-
-  function renderMilestone(value: string | string[]): string {
-    if (Array.isArray(value)) {
-      return `<ul>${value.map(b => `<li>${safeStr(b)}</li>`).join("")}</ul>`;
-    }
-    return `<p>${safeStr(value)}</p>`;
-  }
+  const ms = report.marketScan;
+  const fin = bp?.financials;
+  const scenarioKey = fin?.recommendedScenario ?? "base";
+  const selectedScenario = fin?.scenarios?.[scenarioKey];
+  const score = report.qualityGate?.readinessScore ?? "—";
+  const formatMoney = (value: number | undefined | null) => `$${Number(value ?? 0).toLocaleString()}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1907,26 +2177,23 @@ function generateHTMLReport(report: ReportData): string {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  body { font-family: 'DM Sans', sans-serif; background: #0A0A0A; color: rgba(255,255,255,0.8); max-width: 900px; margin: 40px auto; padding: 0 24px; line-height: 1.7; }
+  body { font-family: 'DM Sans', sans-serif; background: #0A0A0A; color: rgba(255,255,255,0.8); max-width: 860px; margin: 40px auto; padding: 0 24px; line-height: 1.7; }
   h1 { font-family: 'Playfair Display', serif; font-size: 2.8em; margin-bottom: 4px; color: #fff; }
-  h2 { font-family: 'Playfair Display', serif; font-size: 1.5em; color: #D4A853; margin-top: 2.8em; border-bottom: 1px solid rgba(212,168,83,0.25); padding-bottom: 8px; }
-  h3 { font-family: 'DM Sans', sans-serif; font-size: 0.75em; color: rgba(212,168,83,0.6); text-transform: uppercase; letter-spacing: .1em; margin-top: 1.8em; margin-bottom: 6px; }
-  p { margin: 0.6em 0; }
+  h2 { font-family: 'Playfair Display', serif; font-size: 1.4em; color: #D4A853; margin-top: 2.5em; border-bottom: 1px solid rgba(212,168,83,0.2); padding-bottom: 8px; }
+  h3 { font-family: 'DM Sans', sans-serif; font-size: 0.72em; color: rgba(212,168,83,0.55); text-transform: uppercase; letter-spacing: .1em; margin-top: 1.6em; margin-bottom: 6px; }
+  p { margin: 0.5em 0; }
   ul, ol { padding-left: 1.4em; }
-  li { margin: 0.4em 0; color: rgba(255,255,255,0.7); }
-  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.85em; }
-  th { text-align: left; padding: 8px 10px; background: rgba(212,168,83,0.08); color: rgba(212,168,83,0.7); font-size: 0.75em; text-transform: uppercase; letter-spacing: .08em; }
-  td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; color: rgba(255,255,255,0.6); }
-  tr.highlight td { color: #D4A853; background: rgba(212,168,83,0.05); }
-  tr.preopen td { color: rgba(251,191,36,0.8); background: rgba(245,158,11,0.05); }
-  .stat { font-family: 'Playfair Display', serif; font-size: 1.5em; font-weight: 700; color: #D4A853; }
-  .meta { color: rgba(255,255,255,0.3); font-size: 0.85em; margin-bottom: 2.5em; }
-  .warning { background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.25); padding: 14px 18px; border-radius: 8px; margin: 1em 0; color: rgba(253,230,138,0.85); }
-  .amber { background: rgba(245,158,11,0.05); border-left: 3px solid rgba(245,158,11,0.35); padding: 12px 16px; margin: 0.8em 0; color: rgba(253,230,138,0.75); }
-  .assumptions-card { background: rgba(212,168,83,0.05); border: 1px solid rgba(212,168,83,0.2); border-radius: 8px; padding: 14px 18px; margin: 1em 0; display: flex; gap: 24px; flex-wrap: wrap; }
-  .assumptions-card .kpi { text-align: center; flex: 1; min-width: 100px; }
-  .assumptions-card .kpi-val { font-family: 'Playfair Display', serif; font-size: 1.4em; color: #D4A853; }
-  .assumptions-card .kpi-lbl { font-size: 0.7em; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  li { margin: 0.35em 0; color: rgba(255,255,255,0.65); font-size: 0.9em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.82em; }
+  th { text-align: left; padding: 7px 10px; background: rgba(212,168,83,0.07); color: rgba(212,168,83,0.65); font-size: 0.72em; text-transform: uppercase; letter-spacing: .08em; }
+  td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; color: rgba(255,255,255,0.6); }
+  .stat-row { display: flex; gap: 24px; flex-wrap: wrap; margin: 1em 0; }
+  .stat { text-align: center; flex: 1; min-width: 120px; background: rgba(212,168,83,0.05); border: 1px solid rgba(212,168,83,0.2); border-radius: 8px; padding: 14px; }
+  .stat-val { font-family: 'Playfair Display', serif; font-size: 1.6em; color: #D4A853; }
+  .stat-lbl { font-size: 0.7em; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,0.35); margin-top: 3px; }
+  .meta { color: rgba(255,255,255,0.25); font-size: 0.82em; margin-bottom: 2em; }
+  .verdict { border-left: 3px solid #D4A853; padding: 8px 16px; margin: 1em 0; color: #D4A853; font-family: 'Playfair Display', serif; font-size: 1.05em; }
+  blockquote { border-left: 2px solid rgba(212,168,83,0.35); padding: 4px 16px; margin: 0.8em 0; color: rgba(255,255,255,0.7); }
   @media print { body { margin: 20px auto; } }
 </style>
 </head>
@@ -1934,84 +2201,135 @@ function generateHTMLReport(report: ReportData): string {
 <h1>${safeStr(report.businessName)}</h1>
 <p class="meta">Business Plan · Generated by LA Launch · Powered by Claude AI</p>
 
-<h2>1. Input Quality Gate</h2>
-<p class="stat">Readiness Score: ${safeStr(report.qualityGate?.readinessScore)}</p>
-${report.qualityGate?.unreliableSectionsWarning ? `<div class="warning">${safeStr(report.qualityGate.unreliableSectionsWarning)}</div>` : ""}
-<h3>Top Questions to Answer Next</h3>
+<h2>Readiness Score</h2>
+<div class="stat-row">
+  <div class="stat"><div class="stat-val">${safeStr(score)}/10</div><div class="stat-lbl">Readiness</div></div>
+  ${fin ? `<div class="stat"><div class="stat-val">${formatMoney(fin.totalStartupCost)}</div><div class="stat-lbl">Total Startup Cost</div></div>` : ""}
+  ${selectedScenario ? `<div class="stat"><div class="stat-val">${safeStr(formatBreakEven(selectedScenario.breakEvenMonth))}</div><div class="stat-lbl">Break-even Month</div></div>` : ""}
+</div>
+${(report.qualityGate?.readinessLabel) ? `<p style="color:rgba(255,255,255,0.45)">${safeStr(report.qualityGate.readinessLabel)}</p>` : ""}
+<h3>Top Gaps</h3>
 <ol>${(report.qualityGate?.topGaps ?? []).map(q => `<li>${safeStr(q)}</li>`).join("")}</ol>
 
-<h2>2. LA Market Scan & Feasibility</h2>
-${scorecard ? `
-<h3>Feasibility Scorecard</h3>
-<table>
-  <tr><th>Metric</th><th>Score (1–5)</th></tr>
-  <tr><td>Demand</td><td>${scorecard.demand}</td></tr>
-  <tr><td>Competition</td><td>${scorecard.competition}</td></tr>
-  <tr><td>Ops Complexity</td><td>${scorecard.opsComplexity}</td></tr>
-  <tr><td>Capital Intensity</td><td>${scorecard.capitalIntensity}</td></tr>
-  <tr><td>Regulatory Risk</td><td>${scorecard.regulatoryRisk}</td></tr>
-  <tr><td>Timeline Realism</td><td>${scorecard.timelineRealism}</td></tr>
-</table>
-` : ""}
-<h3>Go / No-Go Analysis</h3>
-<ul>${(report.marketScan?.executiveSummary ?? []).map(b => `<li>${safeStr(b)}</li>`).join("")}</ul>
-<h3>Location Analysis</h3>
-<p>${safeStr(report.marketScan?.locationAnalysis?.recommendedAreas)}</p>
-<p class="stat">Est. Monthly Rent: ${safeStr(report.marketScan?.locationAnalysis?.estimatedMonthlyRent)}</p>
-<h3>Next 5 Actions</h3>
-<ol>${(report.marketScan?.next5Actions ?? []).map(a => `<li>${safeStr(a)}</li>`).join("")}</ol>
+<h2>Market Scan</h2>
+${ms?.verdict ? `<div class="verdict">${safeStr(ms.verdict)}</div>` : ""}
+${ms?.targetCustomer ? `<p><strong>Target Customer:</strong> ${safeStr(ms.targetCustomer)}</p>` : ""}
 
-<h2>3. Business Plan</h2>
-<h3>Executive Summary</h3>
-${(bp?.executiveSummary ?? "").split(/\n\n+/).filter(p => p.trim()).map(p => `<p>${safeStr(p)}</p>`).join("")}
-${bp?.productService ? `
-<h3>Product / Service</h3>
-<p><strong>Offerings:</strong> ${safeStr(bp.productService.offerings)}</p>
-<p><strong>Pricing Logic:</strong> ${safeStr(bp.productService.pricingLogic)}</p>
-<p><strong>Differentiation:</strong> ${safeStr(bp.productService.differentiation)}</p>
-` : ""}
+<h3>Feasibility Scores (1–5, higher = better)</h3>
+${ms?.feasibility ? `
+<table>
+  <tr><th>Factor</th><th>Score</th></tr>
+  <tr><td>Demand</td><td>${ms.feasibility.demand}</td></tr>
+  <tr><td>Competition</td><td>${ms.feasibility.competition}</td></tr>
+  <tr><td>Ops Complexity</td><td>${ms.feasibility.opsComplexity}</td></tr>
+  <tr><td>Capital Intensity</td><td>${ms.feasibility.capitalIntensity}</td></tr>
+  <tr><td>Regulatory Risk</td><td>${ms.feasibility.regulatoryRisk}</td></tr>
+  <tr><td>Timeline Realism</td><td>${ms.feasibility.timelineRealism}</td></tr>
+</table>` : ""}
+
+<h3>Top Competitors</h3>
+${ms?.topCompetitors?.length ? `
+<table>
+  <tr><th>Name</th><th>Threat</th><th>Weakness</th></tr>
+  ${ms.topCompetitors.map(c => `<tr><td>${safeStr(c.name)}</td><td>${safeStr(c.threat)}</td><td>${safeStr(c.weakness)}</td></tr>`).join("")}
+</table>` : ""}
+
+<h3>Location Recommendation</h3>
+${ms?.locationRec ? `
+<p><strong>Primary:</strong> ${safeStr(ms.locationRec.primary)}</p>
+<p><strong>Secondary:</strong> ${safeStr(ms.locationRec.secondary)}</p>
+<p><strong>Rent:</strong> ${safeStr(ms.locationRec.monthlyRent)}</p>
+<p>${safeStr(ms.locationRec.whyHere)}</p>` : ""}
+
+<h3>Next 3 Actions</h3>
+<ol>${(ms?.next3Actions ?? []).map(a => `<li>${safeStr(a)}</li>`).join("")}</ol>
+
+<h2>Business Plan</h2>
+${bp?.executiveSummary ? `<blockquote>${safeStr(bp.executiveSummary)}</blockquote>` : ""}
+
+${bp?.product ? `
+<h3>Product</h3>
+<p><strong>${safeStr(bp.product.headline)}</strong></p>
+<ul>${bp.product.bullets.map((bullet) => `<li>${safeStr(bullet)}</li>`).join("")}</ul>
+<p><em>${safeStr(bp.product.moat)}</em></p>` : ""}
+
 ${bp?.goToMarket ? `
 <h3>Go-to-Market</h3>
-<p><strong>Channels:</strong> ${safeStr(bp.goToMarket.channels)}</p>
-<p><strong>Launch Plan:</strong> ${safeStr(bp.goToMarket.launchPlan)}</p>
-<p><strong>Retention:</strong> ${safeStr(bp.goToMarket.retention)}</p>
-` : ""}
-${bp?.operationsPlan ? `
-<h3>Operations Plan</h3>
-<p><strong>Location:</strong> ${safeStr(bp.operationsPlan.location)}</p>
-<p><strong>Staffing:</strong> ${safeStr(bp.operationsPlan.staffing)}</p>
-<p><strong>Workflow:</strong> ${safeStr(bp.operationsPlan.workflow)}</p>
-` : ""}
+<ul>${bp.goToMarket.phases.map((phase) => `<li><strong>${safeStr(phase.label)}:</strong> ${safeStr(phase.action)}</li>`).join("")}</ul>
+${bp.goToMarket.channels.length ? `<p><strong>Channels:</strong> ${bp.goToMarket.channels.map((channel) => safeStr(channel)).join(" · ")}</p>` : ""}
+<p><strong>Retention:</strong> ${safeStr(bp.goToMarket.retention)}</p>` : ""}
+
+${bp?.operations ? `
+<h3>Operations</h3>
+<p><strong>${safeStr(bp.operations.locationName)}</strong></p>
+<p>${safeStr(bp.operations.locationWhy)}</p>
+<ul>${bp.operations.bullets.map((bullet) => `<li>${safeStr(bullet)}</li>`).join("")}</ul>` : ""}
+
 <h3>Milestones</h3>
-<p><strong>Days 0–30:</strong></p>${renderMilestone(bp?.milestones?.days0to30 ?? "")}
-<p><strong>Days 31–90:</strong></p>${renderMilestone(bp?.milestones?.days31to90 ?? "")}
-<p><strong>Days 91–180:</strong></p>${renderMilestone(bp?.milestones?.days91to180 ?? "")}
+${(bp?.milestones ?? []).map(m => `<p><strong>${safeStr(m.period)}:</strong></p><ul>${m.items.map(item => `<li>${safeStr(item)}</li>`).join("")}</ul>`).join("")}
+
+${bp?.permits?.length ? `
+<h3>Permits Required</h3>
+<table>
+  <tr><th>Permit</th><th>Cost</th><th>Timeline</th><th>Action</th></tr>
+  ${bp.permits.map(p => `<tr><td>${safeStr(p.name)}</td><td>${formatMoney(p.cost)}</td><td>${safeStr(p.timelineWeeks)} weeks</td><td>${safeStr(p.action)}</td></tr>`).join("")}
+</table>` : ""}
+
+${bp?.funding?.length ? `
+<h3>Funding Options</h3>
+<table>
+  <tr><th>Source</th><th>Amount</th><th>Fit</th></tr>
+  ${bp.funding.map(f => `<tr><td>${safeStr(f.source)}</td><td>${formatMoney(f.amount)}</td><td>${safeStr(f.fit)}</td></tr>`).join("")}
+</table>` : ""}
+
+${bp?.risks?.length ? `
 <h3>Risks & Mitigations</h3>
 <table>
-  <tr><th>Risk</th><th>Trigger</th><th>Response</th></tr>
-  ${(bp?.risksAndMitigations ?? []).map(r => `<tr><td>${safeStr(r.risk)}</td><td>${safeStr(r.trigger)}</td><td>${safeStr(r.response)}</td></tr>`).join("")}
-</table>
+  <tr><th>Risk</th><th>Mitigation</th></tr>
+  ${bp.risks.map(r => `<tr><td>${safeStr(r.risk)}</td><td>${safeStr(r.mitigation)}</td></tr>`).join("")}
+</table>` : ""}
 
-<h2>4. Pitch Deck</h2>
+${fin ? `
+<h2>Financial Model</h2>
+<p><strong>Recommended Scenario:</strong> ${safeStr(scenarioKey)}</p>
+${bp.financialWarnings?.length ? `<ul>${bp.financialWarnings.map(item => `<li>${safeStr(item)}</li>`).join("")}</ul>` : ""}
+${fin.assumptionPressure?.length ? `<ul>${fin.assumptionPressure.map(item => `<li>${safeStr(item)}</li>`).join("")}</ul>` : ""}
+${fin.credibilityNote ? `<p><strong>This only works if:</strong> ${safeStr(fin.credibilityNote)}</p>` : ""}
+<div class="stat-row">
+  <div class="stat"><div class="stat-val">${formatMoney(selectedScenario?.year1Revenue)}</div><div class="stat-lbl">Year 1 Revenue</div></div>
+  <div class="stat"><div class="stat-val">${formatMoney(selectedScenario?.year1NetIncome)}</div><div class="stat-lbl">Year 1 Net Income</div></div>
+  <div class="stat"><div class="stat-val">${safeStr(formatBreakEven(selectedScenario?.breakEvenMonth))}</div><div class="stat-lbl">Break-even</div></div>
+</div>
+${fin.unitEconomics ? `
+<h3>Unit Economics</h3>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Avg Ticket</td><td>${formatMoney(Number(fin.unitEconomics.avgTicket?.toFixed(2) ?? 0))}</td></tr>
+  <tr><td>COGS / Unit</td><td>${formatMoney(Number(fin.unitEconomics.cogs?.toFixed(2) ?? 0))}</td></tr>
+  <tr><td>Gross Margin</td><td>${fin.unitEconomics.grossMarginPct}%</td></tr>
+  <tr><td>Daily Break-even Transactions</td><td>${fin.unitEconomics.dailyTransactionsToBreakEven}</td></tr>
+</table>` : ""}
+${fin.startupCosts?.length ? `
+<h3>Startup Costs</h3>
+<table>
+  <tr><th>Item</th><th>Cost</th></tr>
+  ${fin.startupCosts.map(c => `<tr><td>${safeStr(c.item)}</td><td>${formatMoney(c.cost)}</td></tr>`).join("")}
+  <tr><td><strong>Total</strong></td><td><strong>${formatMoney(fin.totalStartupCost)}</strong></td></tr>
+</table>` : ""}
+${selectedScenario?.monthlyProjections?.length ? `
+<h3>Monthly Projections</h3>
+<table>
+  <tr><th>Month</th><th>Revenue</th><th>COGS</th><th>OpEx</th><th>Net Income</th></tr>
+  ${selectedScenario.monthlyProjections.map(m => `<tr${m.month === selectedScenario.breakEvenMonth ? ' style="background:rgba(212,168,83,0.07)"' : ""}><td>${m.month}</td><td>${formatMoney(m.revenue)}</td><td>${formatMoney(m.cogs)}</td><td>${formatMoney(m.opex)}</td><td style="color:${m.netIncome >= 0 ? '#4ADE80' : '#EF4444'}">${formatMoney(m.netIncome)}</td></tr>`).join("")}
+</table>` : ""}` : ""}
+
+<h2>Pitch Deck</h2>
 ${(report.pitchDeck?.slides ?? []).map(slide => `
-  <h3>${slide.slideNumber}. ${safeStr(slide.title)}</h3>
-  <ul>${slide.bullets.map(b => `<li>${safeStr(b)}</li>`).join("")}</ul>
-  <p class="amber"><em>Speaker notes: ${safeStr(slide.speakerNotes)}</em></p>
+<h3>${slide.slideNumber}. ${safeStr(slide.title)}</h3>
+<ul>${slide.bullets.map(b => `<li>${safeStr(b)}</li>`).join("")}</ul>
 `).join("")}
 
-<h2>Funding Options</h2>
-${(report.fundingOptions ?? []).map(f => `<h3>${safeStr(f.name)} — ${safeStr(f.amount)}</h3><p>${safeStr(f.description)}</p><p><em>Why it fits: ${safeStr(f.fit)}</em></p>`).join("")}
-
-<h2>Required Permits</h2>
-${(report.permits ?? []).map(p => `<h3>${safeStr(p.name)} — ${safeStr(p.estimatedCost)} · ${safeStr(p.timeline)}</h3><p>${safeStr(p.description)}</p>`).join("")}
-
-<h2>Next Steps</h2>
-<ol>${(report.nextSteps ?? []).map(s => `<li>${safeStr(s)}</li>`).join("")}</ol>
-
-<h2>Risk Factors</h2>
-<ul>${(report.riskFactors ?? []).map(r => `<li>${safeStr(r)}</li>`).join("")}</ul>
-
-<p style="margin-top:3em; font-size:0.75em; color:rgba(255,255,255,0.2); text-align:center;">Powered by Claude + LA Launch</p>
+<p style="margin-top:3em; font-size:0.72em; color:rgba(255,255,255,0.18); text-align:center;">Powered by Claude + LA Launch</p>
 </body>
 </html>`;
 }

@@ -17,245 +17,336 @@ export interface FormData {
   experienceLevel: string;
 }
 
-const LA_DATA = `
-## LA NEIGHBORHOOD DATA
-- Downtown LA: $2.50–5.00/sqft/month. Young professionals, rapid gentrification. High foot traffic. Good transit access.
-- Silver Lake/Echo Park: $3.00–5.50/sqft/month. Trendy/artsy, strong local loyalty. Moderate–High foot traffic. Competitive food scene.
-- Santa Monica: $4.00–8.00/sqft/month. Affluent, tourist-heavy. Very High foot traffic. Strict permitting, high visibility.
-- Venice: $4.50–7.50/sqft/month. Creative, tourist + local mix. High foot traffic. Expensive but strong brand value.
-- Hollywood: $3.00–6.00/sqft/month. Tourist-heavy, nightlife, mixed income. High foot traffic. High visibility.
-- Koreatown: $2.00–4.00/sqft/month. Dense, diverse, strong food culture. High foot traffic. Most affordable option.
-- Arts District: $3.50–6.00/sqft/month. Creative professionals, rapidly growing. Moderate foot traffic. Warehouse-to-retail conversions.
-- Culver City: $3.00–5.50/sqft/month. Tech workers (Amazon/Apple nearby), family-friendly. Moderate foot traffic. Growing restaurant scene.
-- Pasadena: $2.50–5.00/sqft/month. Established community, Old Town foot traffic. Moderate foot traffic. Less transient than Westside.
+const SYSTEM_PREAMBLE = `You are a direct, opinionated LA business strategist who gives founders clear, actionable plans — not consulting reports.
 
-## LA FUNDING PROGRAMS
-- Kiva LA: 0% interest microloans up to $15K, no credit score minimum
-- LISC LA: Small business loans $50K–$250K for underserved communities
-- LA County CDBG: Grants for businesses in low-to-moderate income areas
-- SBA 7(a) Loans: Up to $5M, requires good credit, 7–25 year terms
-- SBA Microloans: Up to $50K through intermediary lenders
-- Cal OSBA Grants: California small business grants, varies by program cycle
-- Local CDFIs: Pacific Asian Consortium, Vermont Slauson EDC
+RULES YOU MUST FOLLOW:
+1. Every statement is 1-2 sentences max. No filler, no hedging, no "if conditions are met" language.
+2. Use specific LA names, streets, programs, and dollar amounts — never give generic advice.
+3. Output ONLY valid JSON matching the schema below. No markdown, no commentary, no backticks.
+4. Be opinionated. Say "Do X" not "Consider X." Say "$7,000 for a cart" not "approximately $5,000-$10,000 depending on various factors."
+5. Financial numbers must be single values (your best estimate), not ranges. Ranges signal you're hedging.`;
 
-## LA PERMIT REQUIREMENTS
-- Business Tax Registration Certificate: all businesses, ~$50–100/year
-- Seller's Permit: retail/food, free from CDTFA
-- Health Permit: food businesses, $500–1,000+, LA County Dept of Public Health
-- Conditional Use Permit: alcohol/entertainment, ~$10K–15K, 6–12 months
-- Building/Fire Permits: physical locations, cost varies
-- Sign Permits: City of LA Dept of Building and Safety
-- Home Occupation Permit: home-based businesses, ~$100
-`;
+const NEIGHBORHOOD_DATA: Record<string, string> = {
+  'Downtown LA': 'Commercial rent $2.50-5.00/sqft, high foot traffic, young professionals, rapid gentrification, good Metro access',
+  'Silver Lake': 'Rent $3.00-5.50/sqft, trendy/artsy, strong local loyalty, competitive food scene, Sunset Blvd corridor',
+  'Echo Park': 'Rent $3.00-5.50/sqft, artsy demographic, Sunset Blvd foot traffic, gentrifying rapidly, lake-adjacent events',
+  'Santa Monica': 'Rent $4.00-8.00/sqft, tourist-heavy, affluent, strict permitting, 3rd Street Promenade anchor, Main St boutiques',
+  'Venice': 'Rent $4.50-7.50/sqft, tourist + local mix, Abbot Kinney corridor, creative community, high brand value',
+  'Hollywood': 'Rent $3.00-6.00/sqft, tourist-heavy, nightlife-oriented, Highland/Vine corridor, mixed income',
+  'Koreatown': 'Rent $2.00-4.00/sqft, dense population, diverse demographics, strong food culture, affordable, Western Ave corridor',
+  'Arts District': 'Rent $3.50-6.00/sqft, creative professionals, growing rapidly, warehouse conversions, 3rd St/Traction Ave',
+  'Culver City': 'Rent $3.00-5.50/sqft, tech workers (Amazon, Apple), family-friendly, Washington Blvd dining, growing scene',
+  'Pasadena': 'Rent $2.50-5.00/sqft, established community, Old Town foot traffic, Colorado Blvd, less transient',
+  'Westwood': 'Rent $3.50-6.50/sqft, UCLA (45K students), Westwood Village foot traffic, competitive food/bev, strict vendor rules',
+};
 
-// Shared output format instruction prepended to every system prompt
-const JSON_OUTPUT_RULE = `OUTPUT FORMAT (non-negotiable):
-- Respond with a single raw JSON object. Nothing before it. Nothing after it.
-- Do NOT wrap in markdown code fences (no \`\`\`json or \`\`\`).
-- Within any JSON string value, represent line breaks as the two-character escape sequence \\n — never as a literal newline character. A literal newline inside a JSON string is a syntax error.
-
-`;
-
-function serializeFormData(formData: FormData): string {
-  return JSON.stringify({
-    businessName: formData.businessName,
-    industry: formData.industry,
-    businessStage: formData.businessStage,
-    businessModel: formData.businessModel,
-    neighborhoods: formData.neighborhoods.join(", ") || "Los Angeles (general)",
-    offerings: formData.offerings,
-    differentiation: formData.differentiation,
-    pricing: formData.pricing,
-    targetCustomers: formData.targetCustomers,
-    customerPersona: formData.customerPersona,
-    startupBudget: formData.budget,
-    fundingSituation: formData.funding,
-    staffingPlan: formData.staffingPlan,
-    spaceNeeds: formData.spaceNeeds,
-    launchTimeline: formData.launchTimeline,
-    experienceLevel: formData.experienceLevel,
-  }, null, 2);
+function getNeighborhoodContext(neighborhoods: string[]): string {
+  return neighborhoods
+    .map(n => {
+      const data = NEIGHBORHOOD_DATA[n];
+      return data ? `- ${n}: ${data}` : null;
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
-export function buildQualityGatePrompt(formData: FormData): { system: string; user: string } {
-  const system = `${JSON_OUTPUT_RULE}You are the Input Quality Gatekeeper for an LA small-business plan generator.
-Your job is to review what the user has told you about their business and identify gaps
-that would reduce the quality of a market scan, business plan, or pitch deck.
+export function buildQualityGatePrompt(formData: FormData): string {
+  return `${SYSTEM_PREAMBLE}
 
-Return a JSON object matching this exact schema:
+You are evaluating this business idea for readiness. Score it honestly. If they gave you thin information, score low — don't compensate with assumptions.
+
+BUSINESS IDEA:
+- Name: ${formData.businessName}
+- Industry: ${formData.industry}
+- Stage: ${formData.businessStage}
+- Model: ${formData.businessModel}
+- Neighborhoods: ${formData.neighborhoods.join(', ')}
+- Offerings: ${formData.offerings}
+- Differentiation: ${formData.differentiation}
+- Pricing: ${formData.pricing}
+- Target Customers: ${formData.targetCustomers}
+- Customer Persona: ${formData.customerPersona}
+- Budget: ${formData.budget}
+- Funding: ${formData.funding}
+- Staffing: ${formData.staffingPlan}
+- Space: ${formData.spaceNeeds}
+- Timeline: ${formData.launchTimeline}
+- Experience: ${formData.experienceLevel}
+
+OUTPUT JSON SCHEMA:
 {
-  "readinessScore": "X/10 — [one sentence summary]",
-  "topGaps": ["gap1", "gap2", "gap3", "gap4", "gap5"],
-  "unreliableSectionsWarning": "..."
+  "readinessScore": <integer 1-10>,
+  "readinessLabel": "<8 words max summarizing the score>",
+  "topGaps": ["<gap 1, one sentence>", "<gap 2, one sentence>", "<gap 3, one sentence>"],
+  "sectionConfidence": {
+    "market": "<high|medium|low>",
+    "financials": "<high|medium|low>",
+    "operations": "<high|medium|low>",
+    "goToMarket": "<high|medium|low>"
+  }
 }
 
-Rules:
-- topGaps must be exactly 5 items, ranked by impact (highest impact first).
-- Be concise — this is a gap check, not a report.
-- Do not invent facts about the business.
-- Label which report sections will be most unreliable given the gaps.`;
-
-  const user = `Business inputs:\n${serializeFormData(formData)}`;
-
-  return { system, user };
+Output ONLY the JSON object. No other text.`;
 }
 
-export function buildMarketScanPrompt(
-  formData: FormData,
-  qualityGateOutput: object
-): { system: string; user: string } {
-  const system = `${JSON_OUTPUT_RULE}You are the LA Market Scan & Feasibility Analyst for a first-time founder.
-Use the user's business inputs to generate a market scan for launching this business in Los Angeles.
-Deliver a decision-ready report that is explicitly LA-grounded.
+export function buildMarketScanPrompt(formData: FormData): string {
+  return `${SYSTEM_PREAMBLE}
 
-You have access to the following LA data:
-${LA_DATA}
+Analyze this LA business idea's market feasibility. Be specific to their LA neighborhood(s).
 
-Return a JSON object matching this exact schema (integer score fields must be integers 1–5 — the 0s below are placeholders):
+BUSINESS CONTEXT:
+- Name: ${formData.businessName}
+- Industry: ${formData.industry}
+- Neighborhoods: ${formData.neighborhoods.join(', ')}
+- Offerings: ${formData.offerings}
+- Pricing: ${formData.pricing}
+- Target Customers: ${formData.targetCustomers}
+- Differentiation: ${formData.differentiation}
+- Budget: ${formData.budget}
+
+LA NEIGHBORHOOD DATA:
+${getNeighborhoodContext(formData.neighborhoods)}
+
+OUTPUT JSON SCHEMA:
 {
-  "executiveSummary": ["bullet1", "bullet2", "bullet3"],
-  "customerAndDemand": {
-    "personas": "string",
-    "demandDrivers": "string",
-    "willingnessToPay": "string"
+  "verdict": "<One bold sentence: Go / Proceed with caution / Rethink. Plus the why.>",
+  "feasibility": {
+    "demand": <1-5>,
+    "competition": <1-5, where 5 = low competition = good>,
+    "opsComplexity": <1-5, where 5 = simple = good>,
+    "capitalIntensity": <1-5, where 5 = low capital needed = good>,
+    "regulatoryRisk": <1-5, where 5 = low risk = good>,
+    "timelineRealism": <1-5, where 5 = very achievable = good>
   },
-  "competitiveLandscape": {
-    "directCompetitors": "string",
-    "whitespaceOpportunities": "string"
+  "targetCustomer": "<One sentence: who they are, how many, what they spend>",
+  "topCompetitors": [
+    { "name": "<real business name in LA>", "threat": "<high|medium|low>", "weakness": "<one sentence>" },
+    { "name": "<real business name>", "threat": "<high|medium|low>", "weakness": "<one sentence>" },
+    { "name": "<real business name>", "threat": "<high|medium|low>", "weakness": "<one sentence>" }
+  ],
+  "locationRec": {
+    "primary": "<Specific location — street or intersection level>",
+    "secondary": "<Backup location>",
+    "monthlyRent": "<Single dollar figure or range for their space type>",
+    "whyHere": "<One sentence on why this location wins>"
   },
-  "locationAnalysis": {
-    "recommendedAreas": "string — 3 to 5 LA neighborhoods with rationale",
-    "estimatedMonthlyRent": "string (dollar range)",
-    "footTrafficNotes": "string",
-    "proximityAdvantage": "string"
-  },
-  "feasibilityScorecard": {
-    "demand": 0,
-    "competition": 0,
-    "opsComplexity": 0,
-    "capitalIntensity": 0,
-    "regulatoryRisk": 0,
-    "timelineRealism": 0,
-    "scorecardNotes": "string"
-  },
-  "next5Actions": ["action1", "action2", "action3", "action4", "action5"]
+  "next3Actions": [
+    "<Specific action with who to contact and by when>",
+    "<Specific action>",
+    "<Specific action>"
+  ]
 }
 
-Rules:
-- feasibilityScorecard values must be integers 1–5 (not strings, not 0).
-- executiveSummary must be exactly 3 string bullets about go/no-go, risks, and upside.
-- next5Actions must be exactly 5 concrete validation steps.
-- Label all assumptions explicitly.
-- Avoid made-up statistics. Use directional reasoning.
-- Be specific about neighborhoods, rent ranges, and LA-specific programs.`;
+IMPORTANT: Name REAL competing businesses in LA, not generic categories. "Starbucks on Westwood Blvd" not "coffee chains." Actions must include a specific person/office to contact and a week-number deadline.
 
-  const user = `Business inputs:\n${serializeFormData(formData)}\n\nInput Quality Gate output:\n${JSON.stringify(qualityGateOutput, null, 2)}`;
-
-  return { system, user };
+Output ONLY the JSON object. No other text.`;
 }
 
 export function buildBusinessPlanPrompt(
   formData: FormData,
+  qualityGateOutput: object,
   marketScanOutput: object
-): { system: string; user: string } {
-  const system = `${JSON_OUTPUT_RULE}You are the LA Small Business Plan Builder.
-Using the user inputs and the LA Market Scan output, write a complete business plan
-suitable for a lender, partner, or early investor.
+): string {
+  return `${SYSTEM_PREAMBLE}
 
-Return a JSON object matching this exact schema:
+Write a concise, actionable business plan for this LA business. The financial model must include structured numbers that stay aligned with readiness, risk, and execution reality.
+
+FULL BUSINESS CONTEXT:
+- Name: ${formData.businessName}
+- Industry: ${formData.industry}
+- Stage: ${formData.businessStage}
+- Model: ${formData.businessModel}
+- Neighborhoods: ${formData.neighborhoods.join(', ')}
+- Offerings: ${formData.offerings}
+- Differentiation: ${formData.differentiation}
+- Pricing: ${formData.pricing}
+- Target Customers: ${formData.targetCustomers}
+- Customer Persona: ${formData.customerPersona}
+- Budget: ${formData.budget}
+- Funding: ${formData.funding}
+- Staffing: ${formData.staffingPlan}
+- Space: ${formData.spaceNeeds}
+- Timeline: ${formData.launchTimeline}
+- Experience: ${formData.experienceLevel}
+
+LA REFERENCE DATA:
+${getNeighborhoodContext(formData.neighborhoods)}
+
+QUALITY GATE OUTPUT:
+${JSON.stringify(qualityGateOutput, null, 2)}
+
+MARKET SCAN OUTPUT:
+${JSON.stringify(marketScanOutput, null, 2)}
+
+LA FUNDING PROGRAMS:
+- Kiva LA: 0% interest microloans up to $15K, no credit score minimum
+- LISC LA: Small business loans $50K-$250K for underserved communities
+- SBA Microloans: Up to $50K through intermediary lenders
+- SBA 7(a) Loans: Up to $5M, requires good credit, 7-25 year terms
+- Cal OSBA Grants: California small business grants, varies by cycle
+- CDFIs: Pacific Asian Consortium, Vermont Slauson EDC
+
+LA PERMITS (include only those relevant to this business type):
+- Business Tax Registration Certificate (~$50-100)
+- Seller's Permit (free from CDTFA)
+- Health Permit ($500-1000+, LA County Dept of Public Health)
+- Conditional Use Permit (alcohol/entertainment, ~$10K-15K, 6-12 months)
+- Building/Fire permits (varies)
+- Home Occupation Permit (~$100)
+- Mobile Food Facility Permit (LA County Public Health)
+- Push-Cart License (City of LA, ~$263-400/year)
+
+OUTPUT JSON SCHEMA:
 {
-  "executiveSummary": "string — EXACTLY 3 paragraphs. Paragraph 1: vision/opportunity. Paragraph 2: strategy/differentiation. Paragraph 3: risks/path forward. Paragraphs are separated by the two-character sequence \\n\\n (backslash-n backslash-n). Para 1 must NOT start with 'However.'",
-  "productService": {
-    "offerings": "string",
-    "pricingLogic": "string",
-    "differentiation": "string"
+  "executiveSummary": "<2-3 sentences. What is it, why does it win in LA, what's the financial bet.>",
+  "product": {
+    "headline": "<e.g. '$12 base · $12.50 avg ticket · 83% margin'>",
+    "bullets": ["<what you sell, max 8 words>", "<key variation/upsell, max 8 words>", "<sourcing/quality, max 8 words>"],
+    "moat": "<1 sentence: your defensible advantage>"
   },
   "goToMarket": {
-    "channels": "string",
-    "launchPlan": "string",
-    "retention": "string"
+    "phases": [
+      { "label": "Phase 1 (Mo 1-2)", "action": "<verb-first clause, max 10 words>" },
+      { "label": "Phase 2 (Mo 3-4)", "action": "<verb-first clause, max 10 words>" },
+      { "label": "Phase 3 (Mo 5-6)", "action": "<verb-first clause, max 10 words>" }
+    ],
+    "channels": ["<LA-specific channel 1>", "<channel 2>", "<channel 3>", "<channel 4>"],
+    "retention": "<1 sentence on loyalty/repeat strategy>"
   },
-  "operationsPlan": {
-    "location": "string",
-    "staffing": "string",
-    "workflow": "string"
+  "operations": {
+    "locationName": "<specific spot name>",
+    "locationWhy": "<1 sentence: why this spot>",
+    "bullets": ["<staffing plan, max 10 words>", "<hours/schedule, max 10 words>", "<supply chain, max 10 words>"]
   },
-  "milestones": {
-    "days0to30": ["string", "string"],
-    "days31to90": ["string", "string"],
-    "days91to180": ["string", "string"]
-  },
-  "risksAndMitigations": [
-    { "risk": "string", "trigger": "string", "response": "string" }
-  ],
-  "fundingOptions": [
-    { "name": "string", "description": "string", "amount": "string", "fit": "string" }
+  "milestones": [
+    { "period": "Days 0-30", "items": ["<concrete action>", "<concrete action>"] },
+    { "period": "Days 31-90", "items": ["<concrete action>", "<concrete action>"] },
+    { "period": "Days 91-180", "items": ["<concrete action>", "<concrete action>"] }
   ],
   "permits": [
-    { "name": "string", "description": "string", "estimatedCost": "string", "timeline": "string" }
+    { "name": "<permit name>", "cost": <integer>, "timelineWeeks": <integer>, "action": "<short next step>" }
   ],
-  "nextSteps": ["string", "string", "string"],
-  "riskFactors": ["string", "string", "string"]
+  "funding": [
+    { "source": "<program name>", "amount": <integer>, "fit": "<12 words max on why it fits>" }
+  ],
+  "risks": [
+    { "risk": "<15 words max>", "mitigation": "<15 words max>" },
+    { "risk": "<15 words max>", "mitigation": "<15 words max>" },
+    { "risk": "<15 words max>", "mitigation": "<15 words max>" }
+  ],
+  "financials": {
+    "startupCosts": [
+      { "item": "<expense category>", "cost": <integer dollar amount> }
+    ],
+    "unitEconomics": {
+      "avgTicket": <number>,
+      "cogs": <number, cost per unit sold>,
+      "grossMarginPct": <integer 0-100>,
+      "dailyTransactionsToBreakEven": <integer>
+    },
+    "scenarios": {
+      "downside": {
+        "monthlyProjections": [
+          { "month": 1, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 2, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 3, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 4, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 5, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 6, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 7, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 8, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 9, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 10, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 11, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> },
+          { "month": 12, "revenue": <integer>, "cogs": <integer>, "opex": <integer>, "netIncome": <integer> }
+        ],
+        "breakEvenMonth": <integer 1-12 or 99 if no break-even in year 1>,
+        "year1Revenue": <integer>,
+        "year1NetIncome": <integer>
+      },
+      "base": {
+        "monthlyProjections": [<same 12 objects as downside>],
+        "breakEvenMonth": <integer 1-12 or 99>,
+        "year1Revenue": <integer>,
+        "year1NetIncome": <integer>
+      },
+      "upside": {
+        "monthlyProjections": [<same 12 objects as downside>],
+        "breakEvenMonth": <integer 1-12 or 99>,
+        "year1Revenue": <integer>,
+        "year1NetIncome": <integer>
+      }
+    },
+    "recommendedScenario": "<downside|base|upside>",
+    "assumptionPressure": ["<pressure point 1>", "<pressure point 2>", "<pressure point 3>"],
+    "credibilityNote": "<One sentence in plain English. State what must go right for the model to hold.>",
+    "totalStartupCost": <integer, sum of startupCosts>
+  }
 }
 
-Rules:
-- executiveSummary: EXACTLY 3 paragraphs. Use \\n\\n (the escape sequence) between paragraphs — NOT literal newline characters. Para 1 must NOT start with "However."
-- risksAndMitigations must be exactly 4 items.
-- Include 2–3 fundingOptions most relevant to their situation.
-- Include all applicable permits for their business type.
-- nextSteps must be exactly 3 concrete, actionable items.
-- riskFactors must be exactly 3 items.
-- Tie all recommendations to the user's stated startup capital and timeline.
-- Be practical and specific to LA. No generic startup advice.
-- milestones.days0to30, days31to90, and days91to180 must each be arrays of exactly 2 bullet strings.
-- Each risksAndMitigations trigger must be specific and measurable (e.g., "revenue below $X for 2 consecutive months"), not generic phrases like "if sales drop".`;
+FINANCIAL MODEL RULES:
+- Month 1 is usually $0 revenue (permitting/setup month) unless they're already operating.
+- Revenue ramps over months 2-6 based on realistic customer acquisition for LA.
+- COGS should reflect actual industry margins (food: 25-35%, retail: 40-60%, services: 10-20%).
+- OpEx includes rent, utilities, insurance, marketing, payroll (if any), supplies.
+- startupCosts items should sum to totalStartupCost. Be realistic for LA.
+- dailyTransactionsToBreakEven = monthly OpEx / (avgTicket - cogs) / 20 working days.
+- All numbers are integers except avgTicket and cogs which can have decimals.
+- product.bullets must have exactly 3 items.
+- goToMarket.phases must have exactly 3 items.
+- operations.bullets must have exactly 3 items.
+- risks must have exactly 3 items.
+- Each product bullet must stay under 8 words.
+- Each goToMarket action must stay under 10 words and contain one action only.
+- operations bullets must map cleanly to staffing, hours, and supply chain in that order.
+- Use the quality gate and market scan as constraints, not background color.
+- downside must assume slower ramp, weaker conversion, and more operating friction than base.
+- upside can only improve if the offer, location, and execution evidence justify it.
+- If readinessScore is 5 or below, or financial confidence is low, or regulatoryRisk/opsComplexity/capitalIntensity is 2 or below, recommendedScenario cannot be "upside".
+- If the overall concept is weak, the recommended scenario should usually be downside or base. Do not hide bad ideas; show cautious numbers and explain the assumptions.
+- Positive scenarios are allowed for weak ideas, but only when clearly framed as assumption-heavy, not likely outcomes.
+- assumptionPressure must be exactly 3 short strings written so a beginner can understand them.
+- credibilityNote must directly explain why a positive case may still fail in plain English.
+- The financial model is for teaching, not for false precision. If the idea is weak, it is better to state conservative assumptions clearly than to force perfect-looking numbers.
 
-  const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan output:\n${JSON.stringify(marketScanOutput, null, 2)}`;
-
-  return { system, user };
+Output ONLY the JSON object. No other text.`;
 }
 
+export function buildPitchDeckPrompt(formData: FormData): string {
+  return `${SYSTEM_PREAMBLE}
 
-export function buildPitchDeckPrompt(
-  formData: FormData,
-  marketScanOutput: object,
-  businessPlanOutput: object
-): { system: string; user: string } {
-  const system = `${JSON_OUTPUT_RULE}You are the Pitch Deck Agent for an LA small business.
-Create an 8-slide pitch deck outline using all prior research and plan outputs.
-For each slide: a title, 3–5 bullet points (max 12 words per bullet), and 2–3 sentences of speaker notes.
+Create an 8-slide pitch deck for this LA business. Each bullet must be punchy and memorable — this is a pitch, not an essay. Every bullet should make an investor lean forward.
 
-Return a JSON object matching this exact schema:
+BUSINESS: ${formData.businessName}
+INDUSTRY: ${formData.industry}
+LOCATION: ${formData.neighborhoods.join(', ')}
+OFFERING: ${formData.offerings}
+PRICING: ${formData.pricing}
+TARGET: ${formData.targetCustomers}
+DIFFERENTIATION: ${formData.differentiation}
+BUDGET: ${formData.budget}
+
+OUTPUT JSON SCHEMA:
 {
   "slides": [
-    {
-      "slideNumber": 1,
-      "title": "string",
-      "bullets": ["string", "string", "string"],
-      "speakerNotes": "string — 2 to 3 sentences"
-    }
+    { "slideNumber": 1, "title": "The Vision", "bullets": ["<punchy sentence>", "<punchy sentence>", "<punchy sentence>"] },
+    { "slideNumber": 2, "title": "The Problem", "bullets": ["...", "...", "..."] },
+    { "slideNumber": 3, "title": "The Solution", "bullets": ["...", "...", "..."] },
+    { "slideNumber": 4, "title": "The Customer", "bullets": ["...", "...", "..."] },
+    { "slideNumber": 5, "title": "The Market", "bullets": ["...", "...", "..."] },
+    { "slideNumber": 6, "title": "The Competition", "bullets": ["...", "...", "..."] },
+    { "slideNumber": 7, "title": "The Numbers", "bullets": ["...", "...", "..."] },
+    { "slideNumber": 8, "title": "The Ask", "bullets": ["...", "...", "..."] }
   ]
 }
 
-Required slides in order:
-1. Vision / One-liner
-2. Problem (LA-specific)
-3. Solution
-4. Customer (persona + opportunity size)
-5. Market snapshot (LA-grounded, directional)
-6. Competition & differentiation
-7. Business model + unit economics drivers
-8. Go-to-market (first 90 days)
+RULES:
+- Exactly 3 bullets per slide, no more, no less.
+- Each bullet is max 15 words. Shorter is better.
+- Slide 7 ("The Numbers") must include specific dollar amounts (revenue, margin, break-even).
+- Slide 8 ("The Ask") must state what the founder needs and the 90-day milestone.
+- Use LA-specific references where possible.
+- No speaker notes. No descriptions. Just the slide content.
 
-Rules:
-- slides must have exactly 8 entries with slideNumber 1 through 8.
-- Do not invent facts. Pull only from prior stage outputs.
-- Label all estimates as estimates.
-- Speaker notes should help a first-time founder know what to say — not just repeat the bullets.
-- Keep bullets crisp — max 12 words per bullet.
-- Each slide's speakerNotes must include at least one specific dollar amount, LA neighborhood name, or business-specific detail. Generic presenter advice like "tell your story" or "pause for questions" is not acceptable.`;
-
-  const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan:\n${JSON.stringify(marketScanOutput, null, 2)}\n\nBusiness Plan:\n${JSON.stringify(businessPlanOutput, null, 2)}`;
-
-  return { system, user };
+Output ONLY the JSON object. No other text.`;
 }
