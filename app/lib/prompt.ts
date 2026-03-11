@@ -80,27 +80,17 @@ function serializeFormData(formData: FormData): string {
 export function buildQualityGatePrompt(formData: FormData): { system: string; user: string } {
   const system = `${JSON_OUTPUT_RULE}You are the Input Quality Gatekeeper for an LA small-business plan generator.
 Your job is to review what the user has told you about their business and identify gaps
-that would reduce the quality of a market scan, business plan, 24-month financial model,
-or pitch deck.
+that would reduce the quality of a market scan, business plan, or pitch deck.
 
-Return a JSON object matching this exact schema (all integer fields default to 0 — replace with your actual values):
+Return a JSON object matching this exact schema:
 {
   "readinessScore": "X/10 — [one sentence summary]",
-  "missingInputs": {
-    "offer": [],
-    "customer": [],
-    "location": [],
-    "ops": [],
-    "financials": [],
-    "risk": []
-  },
-  "topSevenQuestions": ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7"],
+  "topGaps": ["gap1", "gap2", "gap3", "gap4", "gap5"],
   "unreliableSectionsWarning": "..."
 }
 
 Rules:
-- Rank the 7 questions by impact (highest impact first).
-- Do not ask more than 7 questions.
+- topGaps must be exactly 5 items, ranked by impact (highest impact first).
 - Be concise — this is a gap check, not a report.
 - Do not invent facts about the business.
 - Label which report sections will be most unreliable given the gaps.`;
@@ -123,16 +113,14 @@ ${LA_DATA}
 
 Return a JSON object matching this exact schema (integer score fields must be integers 1–5 — the 0s below are placeholders):
 {
-  "executiveSummary": ["bullet1", "bullet2", "bullet3", "bullet4", "bullet5"],
+  "executiveSummary": ["bullet1", "bullet2", "bullet3"],
   "customerAndDemand": {
     "personas": "string",
     "demandDrivers": "string",
-    "seasonality": "string",
     "willingnessToPay": "string"
   },
   "competitiveLandscape": {
     "directCompetitors": "string",
-    "substitutes": "string",
     "whitespaceOpportunities": "string"
   },
   "locationAnalysis": {
@@ -140,15 +128,6 @@ Return a JSON object matching this exact schema (integer score fields must be in
     "estimatedMonthlyRent": "string (dollar range)",
     "footTrafficNotes": "string",
     "proximityAdvantage": "string"
-  },
-  "costsAndUnitEconomics": {
-    "majorCostBuckets": "string",
-    "breakevenEquation": "string",
-    "assumptions": "string"
-  },
-  "regulatoryAndPermits": {
-    "applicable": "string",
-    "toVerifyNext": "string"
   },
   "feasibilityScorecard": {
     "demand": 0,
@@ -159,17 +138,16 @@ Return a JSON object matching this exact schema (integer score fields must be in
     "timelineRealism": 0,
     "scorecardNotes": "string"
   },
-  "next2WeeksActions": ["action1", "action2", "action3", "action4", "action5", "action6", "action7", "action8", "action9", "action10"]
+  "next5Actions": ["action1", "action2", "action3", "action4", "action5"]
 }
 
 Rules:
 - feasibilityScorecard values must be integers 1–5 (not strings, not 0).
-- executiveSummary must be exactly 5 string bullets about go/no-go, risks, and upside.
-- next2WeeksActions must be exactly 10 concrete validation steps.
+- executiveSummary must be exactly 3 string bullets about go/no-go, risks, and upside.
+- next5Actions must be exactly 5 concrete validation steps.
 - Label all assumptions explicitly.
 - Avoid made-up statistics. Use directional reasoning.
-- Be specific about neighborhoods, rent ranges, and LA-specific programs.
-- breakevenEquation must embed actual numbers: "Break-even = $[fixed_costs] ÷ (1 - [cogs_pct]%) = $[X]/month revenue needed". No generic placeholders.`;
+- Be specific about neighborhoods, rent ranges, and LA-specific programs.`;
 
   const user = `Business inputs:\n${serializeFormData(formData)}\n\nInput Quality Gate output:\n${JSON.stringify(qualityGateOutput, null, 2)}`;
 
@@ -187,13 +165,11 @@ suitable for a lender, partner, or early investor.
 Return a JSON object matching this exact schema:
 {
   "executiveSummary": "string — EXACTLY 3 paragraphs. Paragraph 1: vision/opportunity. Paragraph 2: strategy/differentiation. Paragraph 3: risks/path forward. Paragraphs are separated by the two-character sequence \\n\\n (backslash-n backslash-n). Para 1 must NOT start with 'However.'",
-  "companyAndMission": "string",
   "productService": {
     "offerings": "string",
     "pricingLogic": "string",
     "differentiation": "string"
   },
-  "marketAnalysis": "string",
   "goToMarket": {
     "channels": "string",
     "launchPlan": "string",
@@ -202,40 +178,36 @@ Return a JSON object matching this exact schema:
   "operationsPlan": {
     "location": "string",
     "staffing": "string",
-    "vendors": "string",
     "workflow": "string"
   },
-  "regulatoryPlan": "string",
   "milestones": {
-    "days0to30": ["string", "string", "string"],
-    "days31to90": ["string", "string", "string"],
-    "days91to180": ["string", "string", "string"]
+    "days0to30": ["string", "string"],
+    "days31to90": ["string", "string"],
+    "days91to180": ["string", "string"]
   },
   "risksAndMitigations": [
     { "risk": "string", "trigger": "string", "response": "string" }
   ],
-  "financialSummary": "string",
-  "assumptions": "string",
   "fundingOptions": [
     { "name": "string", "description": "string", "amount": "string", "fit": "string" }
   ],
   "permits": [
     { "name": "string", "description": "string", "estimatedCost": "string", "timeline": "string" }
   ],
-  "nextSteps": ["string", "string", "string", "string", "string"],
+  "nextSteps": ["string", "string", "string"],
   "riskFactors": ["string", "string", "string"]
 }
 
 Rules:
 - executiveSummary: EXACTLY 3 paragraphs. Use \\n\\n (the escape sequence) between paragraphs — NOT literal newline characters. Para 1 must NOT start with "However."
-- risksAndMitigations must be exactly 8 items.
-- Include 2–4 fundingOptions most relevant to their situation.
+- risksAndMitigations must be exactly 4 items.
+- Include 2–3 fundingOptions most relevant to their situation.
 - Include all applicable permits for their business type.
-- nextSteps must be exactly 5 concrete, actionable items.
+- nextSteps must be exactly 3 concrete, actionable items.
 - riskFactors must be exactly 3 items.
 - Tie all recommendations to the user's stated startup capital and timeline.
 - Be practical and specific to LA. No generic startup advice.
-- milestones.days0to30, days31to90, and days91to180 must each be arrays of 3–5 bullet strings.
+- milestones.days0to30, days31to90, and days91to180 must each be arrays of exactly 2 bullet strings.
 - Each risksAndMitigations trigger must be specific and measurable (e.g., "revenue below $X for 2 consecutive months"), not generic phrases like "if sales drop".`;
 
   const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan output:\n${JSON.stringify(marketScanOutput, null, 2)}`;
@@ -243,89 +215,15 @@ Rules:
   return { system, user };
 }
 
-export function buildFinancialModelPrompt(
-  formData: FormData,
-  marketScanOutput: object,
-  businessPlanOutput: object
-): { system: string; user: string } {
-  const system = `${JSON_OUTPUT_RULE}You are the Financial Model Agent for a new LA small business.
-Based on the user inputs, LA Market Scan, and Business Plan, produce a
-spreadsheet-ready financial model the founder can paste into Excel or Google Sheets.
-
-Return a JSON object matching this exact schema (all numeric fields are plain numbers — no dollar signs, no commas):
-{
-  "modelOverview": ["bullet1", "bullet2", "bullet3", "bullet4", "bullet5"],
-  "inputsTable": [
-    { "variable": "string", "definition": "string", "example": "string", "howToEstimate": "string" }
-  ],
-  "monthlyPnL": [
-    { "month": 1, "revenue": 0, "cogs": 0, "grossProfit": 0, "opex": 0, "ebitda": 0 }
-  ],
-  "cashRunway": [
-    { "month": 0, "startingCash": 0, "startupCostDeploy": 0, "endingCash": 0 },
-    { "month": 1, "startingCash": 0, "monthlyNetBurn": 0, "endingCash": 0 }
-  ],
-  "breakevenAnalysis": {
-    "formula": "string",
-    "drivers": "string",
-    "estimatedBreakevenMonth": "string"
-  },
-  "scenarios": {
-    "base": { "revenueAssumption": "string", "cogsPercent": 0, "fixedOpexMonthly": 0, "breakevenMonth": 0, "yearOneRevenue": 0 },
-    "conservative": { "revenueAssumption": "string", "cogsPercent": 0, "fixedOpexMonthly": 0, "breakevenMonth": 0, "yearOneRevenue": 0 },
-    "aggressive": { "revenueAssumption": "string", "cogsPercent": 0, "fixedOpexMonthly": 0, "breakevenMonth": 0, "yearOneRevenue": 0 }
-  },
-  "opexBreakdown": { "rent": 0, "labor": 0, "marketing": 0, "utilities": 0, "other": 0 },
-  "keyAssumptions": { "cogsPercent": 0, "fixedMonthlyOpex": 0, "month1Revenue": 0, "revenueGrowthRatePercent": 0 },
-  "summaryStats": { "cashAtMonth24": 0, "monthsToBreakeven": 0, "totalStartupCost": 0, "startingOperatingCash": 0 },
-  "founderInstructions": "string",
-  "dataPointsToCollect": ["string", "string", "string", "string", "string", "string", "string", "string"]
-}
-
-MATH CONSISTENCY RULES (verify these before outputting):
-1. grossProfit = revenue - cogs (for every month, no exceptions)
-2. ebitda = grossProfit - opex (for every month, no exceptions)
-3. monthlyNetBurn = -ebitda (for every month, no exceptions)
-4. endingCash[month N] = startingCash[month N+1]
-5. Month 0 endingCash = user's budget minus startupCostDeploy
-6. COGS% must be one constant value applied identically across all 24 months
-7. estimatedBreakevenMonth = first month where ebitda > 0; summaryStats.monthsToBreakeven must match this integer
-
-Additional rules:
-- monthlyPnL must have exactly 24 entries (months 1–24).
-- cashRunway must have exactly 25 entries: month 0 (startup deploy) plus months 1–24.
-- Month 0 fields: month, startingCash, startupCostDeploy (negative integer), endingCash. No other fields.
-- Months 1–24 fields: month, startingCash, monthlyNetBurn, endingCash. No other fields.
-- modelOverview must be exactly 5 bullets. Bullet 1 must state: "COGS = X% of revenue".
-- dataPointsToCollect must be exactly 8 items.
-- Model a realistic ramp: months 1–3 are typically below breakeven.
-- Use the user's stated startup budget as starting cash balance.
-- Scenarios ordering: conservative.breakevenMonth >= base.breakevenMonth >= aggressive.breakevenMonth.
-- All numeric fields are plain integers or floats — no dollar signs, no commas.`;
-
-  // Pass a trimmed version of businessPlan to save tokens (financial fields only)
-  const bp = businessPlanOutput as Record<string, unknown>;
-  const businessPlanSummary = {
-    financialSummary: bp.financialSummary,
-    assumptions: bp.assumptions,
-    fundingOptions: bp.fundingOptions,
-    milestones: bp.milestones,
-  };
-
-  const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan:\n${JSON.stringify(marketScanOutput, null, 2)}\n\nBusiness Plan (financial summary):\n${JSON.stringify(businessPlanSummary, null, 2)}`;
-
-  return { system, user };
-}
 
 export function buildPitchDeckPrompt(
   formData: FormData,
   marketScanOutput: object,
-  businessPlanOutput: object,
-  financialModelOutput: object
+  businessPlanOutput: object
 ): { system: string; user: string } {
   const system = `${JSON_OUTPUT_RULE}You are the Pitch Deck Agent for an LA small business.
-Create a 10–12 slide pitch deck outline using all prior research and plan outputs.
-For each slide: a title, 3–6 bullet points (max 12 words per bullet), and 2–3 sentences of speaker notes.
+Create an 8-slide pitch deck outline using all prior research and plan outputs.
+For each slide: a title, 3–5 bullet points (max 12 words per bullet), and 2–3 sentences of speaker notes.
 
 Return a JSON object matching this exact schema:
 {
@@ -343,25 +241,21 @@ Required slides in order:
 1. Vision / One-liner
 2. Problem (LA-specific)
 3. Solution
-4. Customer (persona, size of opportunity)
+4. Customer (persona + opportunity size)
 5. Market snapshot (LA-grounded, directional)
 6. Competition & differentiation
 7. Business model + unit economics drivers
 8. Go-to-market (first 90 days)
-9. Operations plan
-10. Financial highlights (capital needs, runway, breakeven)
-11. The Ask (funding amount or partners/hires needed)
-12. Risks & mitigations
 
 Rules:
-- slides must have exactly 12 entries with slideNumber 1 through 12.
+- slides must have exactly 8 entries with slideNumber 1 through 8.
 - Do not invent facts. Pull only from prior stage outputs.
 - Label all estimates as estimates.
 - Speaker notes should help a first-time founder know what to say — not just repeat the bullets.
 - Keep bullets crisp — max 12 words per bullet.
 - Each slide's speakerNotes must include at least one specific dollar amount, LA neighborhood name, or business-specific detail. Generic presenter advice like "tell your story" or "pause for questions" is not acceptable.`;
 
-  const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan:\n${JSON.stringify(marketScanOutput, null, 2)}\n\nBusiness Plan:\n${JSON.stringify(businessPlanOutput, null, 2)}\n\nFinancial Model:\n${JSON.stringify(financialModelOutput, null, 2)}`;
+  const user = `Business inputs:\n${serializeFormData(formData)}\n\nLA Market Scan:\n${JSON.stringify(marketScanOutput, null, 2)}\n\nBusiness Plan:\n${JSON.stringify(businessPlanOutput, null, 2)}`;
 
   return { system, user };
 }

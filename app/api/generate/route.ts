@@ -5,7 +5,6 @@ import {
   buildQualityGatePrompt,
   buildMarketScanPrompt,
   buildBusinessPlanPrompt,
-  buildFinancialModelPrompt,
   buildPitchDeckPrompt,
 } from "@/app/lib/prompt";
 
@@ -19,71 +18,105 @@ function sanitizeJsonControlChars(text: string): string {
   let escaped = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+    const code = ch.charCodeAt(0);
     if (escaped) { result += ch; escaped = false; continue; }
     if (ch === "\\") { result += ch; escaped = true; continue; }
     if (ch === '"') { inString = !inString; result += ch; continue; }
-    if (inString) {
+    if (inString && code < 0x20) {
+      // Escape all control characters (0x00–0x1F) to their JSON unicode escape form
       if (ch === "\n") { result += "\\n"; continue; }
       if (ch === "\r") { result += "\\r"; continue; }
       if (ch === "\t") { result += "\\t"; continue; }
+      result += `\\u${code.toString(16).padStart(4, "0")}`;
+      continue;
     }
     result += ch;
   }
   return result;
 }
 
+// Walk forward from startIdx to find the matching closing } using depth tracking.
+// More reliable than lastIndexOf when Haiku adds text after the JSON object.
+function findMatchingBrace(text: string, startIdx: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (ch === "{") depth++;
+      else if (ch === "}") { depth--; if (depth === 0) return i; }
+    }
+  }
+  return -1;
+}
+
 function parseJSON(raw: string): object {
   let text = raw.trim();
   text = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
   const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new SyntaxError("No JSON object found");
-  const candidate = sanitizeJsonControlChars(text.slice(start, end + 1));
+  if (start === -1) throw new SyntaxError("No JSON object found");
+  const end = findMatchingBrace(text, start);
+  if (end === -1) throw new SyntaxError("No matching closing brace found");
+  let candidate = text.slice(start, end + 1);
+  // Remove trailing commas before } or ] (common Haiku output issue)
+  candidate = candidate.replace(/,(\s*[}\]])/g, "$1");
+  candidate = sanitizeJsonControlChars(candidate);
   return JSON.parse(candidate);
 }
 
-async function callClaude(system: string, user: string, retries = 3): Promise<object> {
-  try {
-    const response = await client.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 8192,
-      system,
-      messages: [{ role: "user", content: user }],
-    });
-    const text = response.content[0].type === "text" ? response.content[0].text.trim() : "";
-    console.log("[generate] raw response preview:", text.slice(0, 200));
-    return parseJSON(text);
-  } catch (err) {
-    if (err instanceof Anthropic.RateLimitError && retries > 0) {
-      const waitMs = 20000;
-      console.log(`[generate] Rate limited. Retrying in ${waitMs}ms... (${retries} retries left)`);
-      await new Promise((r) => setTimeout(r, waitMs));
-      return callClaude(system, user, retries - 1);
+async function callClaude(
+  system: string,
+  user: string,
+  model = "claude-haiku-4-5-20251001",
+  { rateRetries = 3, parseRetries = 2 } = {}
+): Promise<object> {
+  // Inner: one API call + parse attempt
+  async function attempt(): Promise<object> {
+    try {
+      const response = await client.messages.create({
+        model,
+        max_tokens: 8192,
+        system,
+        messages: [{ role: "user", content: user }],
+      });
+      const text = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+      console.log("[generate] raw response preview:", text.slice(0, 200));
+      try {
+        return parseJSON(text);
+      } catch (parseErr) {
+        console.error("[generate] JSON parse error. Full raw response:\n", text);
+        throw parseErr;
+      }
+    } catch (err) {
+      if (err instanceof Anthropic.RateLimitError && rateRetries > 0) {
+        const waitMs = 20000;
+        console.log(`[generate] Rate limited. Retrying in ${waitMs}ms... (${rateRetries} left)`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        return callClaude(system, user, model, { rateRetries: rateRetries - 1, parseRetries });
+      }
+      throw err;
     }
-    throw err;
   }
+
+  // Outer: retry on JSON parse failure
+  for (let i = 0; i <= parseRetries; i++) {
+    try {
+      return await attempt();
+    } catch (err) {
+      if (err instanceof SyntaxError && i < parseRetries) {
+        console.log(`[generate] JSON parse failed, retrying (attempt ${i + 2}/${parseRetries + 1})...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("Unreachable");
 }
 
-function validateFinancialModel(fm: Record<string, unknown>): string[] {
-  const errors: string[] = [];
-  const pnl = fm.monthlyPnL as Array<Record<string, number>>;
-  const runway = fm.cashRunway as Array<Record<string, number>>;
-  const TOLERANCE = 100;
-
-  pnl?.filter(r => r.month > 0).forEach(row => {
-    const expectedGP = row.revenue - row.cogs;
-    const expectedEBITDA = row.grossProfit - row.opex;
-    if (Math.abs(row.grossProfit - expectedGP) > TOLERANCE)
-      errors.push(`Month ${row.month}: grossProfit math error (expected ${expectedGP}, got ${row.grossProfit})`);
-    if (Math.abs(row.ebitda - expectedEBITDA) > TOLERANCE)
-      errors.push(`Month ${row.month}: ebitda math error (expected ${expectedEBITDA}, got ${row.ebitda})`);
-    const runwayRow = runway?.find(r => r.month === row.month);
-    if (runwayRow && Math.abs((runwayRow.monthlyNetBurn ?? 0) - (-row.ebitda)) > TOLERANCE)
-      errors.push(`Month ${row.month}: P&L/cashRunway mismatch (burn=${runwayRow.monthlyNetBurn}, -ebitda=${-row.ebitda})`);
-  });
-
-  return errors;
-}
 
 export async function POST(request: NextRequest) {
   const formData: FormData = await request.json();
@@ -97,56 +130,33 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        // Stage 1: Quality Gate
+        // Wave 1: Stage 1 (Quality Gate) + Stage 2 (Market Scan) in parallel
         emit({ stage: 1, stageName: "Input Quality Gate", status: "running" });
-        const { system: s1, user: u1 } = buildQualityGatePrompt(formData);
-        const qualityGate = await callClaude(s1, u1);
-        console.log("[stage1] qualityGate:", JSON.stringify(qualityGate).slice(0, 300));
-        emit({ stage: 1, stageName: "Input Quality Gate", status: "complete", result: qualityGate });
-
-        // Stage 2: Market Scan
         emit({ stage: 2, stageName: "LA Market Scan", status: "running" });
-        const { system: s2, user: u2 } = buildMarketScanPrompt(formData, qualityGate);
-        const marketScan = await callClaude(s2, u2);
+        const { system: s1, user: u1 } = buildQualityGatePrompt(formData);
+        const { system: s2, user: u2 } = buildMarketScanPrompt(formData, {});
+        const [qualityGate, marketScan] = await Promise.all([
+          callClaude(s1, u1, "claude-haiku-4-5-20251001"),
+          callClaude(s2, u2, "claude-haiku-4-5-20251001"),
+        ]);
+        console.log("[stage1] qualityGate:", JSON.stringify(qualityGate).slice(0, 300));
         console.log("[stage2] marketScan:", JSON.stringify(marketScan).slice(0, 300));
+        emit({ stage: 1, stageName: "Input Quality Gate", status: "complete", result: qualityGate });
         emit({ stage: 2, stageName: "LA Market Scan", status: "complete", result: marketScan });
 
-        // Stage 3: Business Plan
+        // Wave 2: Stage 3 (Business Plan) — needs marketScan
         emit({ stage: 3, stageName: "Business Plan", status: "running" });
         const { system: s3, user: u3 } = buildBusinessPlanPrompt(formData, marketScan);
-        const businessPlan = await callClaude(s3, u3);
+        const businessPlan = await callClaude(s3, u3, "claude-haiku-4-5-20251001");
         console.log("[stage3] businessPlan:", JSON.stringify(businessPlan).slice(0, 300));
         emit({ stage: 3, stageName: "Business Plan", status: "complete", result: businessPlan });
 
-        // Stage 4: Financial Model
-        emit({ stage: 4, stageName: "Financial Model", status: "running" });
-        const { system: s4, user: u4 } = buildFinancialModelPrompt(formData, marketScan, businessPlan);
-        const financialModel = await callClaude(s4, u4);
-        console.log("[stage4] financialModel:", JSON.stringify(financialModel).slice(0, 300));
-        const fm4 = financialModel as Record<string, unknown>;
-        const validationWarnings = validateFinancialModel(fm4);
-        if (validationWarnings.length > 0) {
-          console.warn("[stage4] Financial model validation warnings:", validationWarnings);
-          fm4.validationWarnings = validationWarnings;
-        }
-        emit({ stage: 4, stageName: "Financial Model", status: "complete", result: financialModel });
-
-        // Stage 5: Pitch Deck — pass trimmed financial model to avoid token overflow
-        emit({ stage: 5, stageName: "Pitch Deck", status: "running" });
-        const fm = financialModel as Record<string, unknown>;
-        const financialModelSummary = {
-          modelOverview: fm.modelOverview,
-          breakevenAnalysis: fm.breakevenAnalysis,
-          scenarios: fm.scenarios,
-          // omit the full 24-row tables to stay within token limits
-          monthlyPnL_note: "24-month P&L generated — see financial model section",
-          cashRunway_note: "24-month cash runway generated — see financial model section",
-          dataPointsToCollect: fm.dataPointsToCollect,
-        };
-        const { system: s5, user: u5 } = buildPitchDeckPrompt(formData, marketScan, businessPlan, financialModelSummary);
-        const pitchDeck = await callClaude(s5, u5);
-        console.log("[stage5] pitchDeck:", JSON.stringify(pitchDeck).slice(0, 300));
-        emit({ stage: 5, stageName: "Pitch Deck", status: "complete", result: pitchDeck });
+        // Wave 3: Stage 4 (Pitch Deck)
+        emit({ stage: 4, stageName: "Pitch Deck", status: "running" });
+        const { system: s4, user: u4 } = buildPitchDeckPrompt(formData, marketScan, businessPlan);
+        const pitchDeck = await callClaude(s4, u4, "claude-haiku-4-5-20251001");
+        console.log("[stage4] pitchDeck:", JSON.stringify(pitchDeck).slice(0, 300));
+        emit({ stage: 4, stageName: "Pitch Deck", status: "complete", result: pitchDeck });
 
         // Pull top-level fields from businessPlan
         const bp = businessPlan as Record<string, unknown>;
@@ -156,7 +166,6 @@ export async function POST(request: NextRequest) {
           qualityGate,
           marketScan,
           businessPlan,
-          financialModel,
           pitchDeck,
           fundingOptions: Array.isArray(bp.fundingOptions) ? bp.fundingOptions : [],
           permits: Array.isArray(bp.permits) ? bp.permits : [],

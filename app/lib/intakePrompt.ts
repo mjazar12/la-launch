@@ -57,7 +57,11 @@ export function buildIntakeMessages(messages: { role: string; content: string }[
   // Anthropic requires the first message to be from the user.
   // The initial greeting is display-only — drop any leading assistant turns.
   const firstUserIdx = messages.findIndex((m) => m.role === "user");
-  const userMessages = firstUserIdx === -1 ? [] : messages.slice(firstUserIdx);
+  let userMessages = firstUserIdx === -1 ? [] : messages.slice(firstUserIdx);
+  if (userMessages.length === 0) {
+    // Anthropic rejects an empty messages array — fail safe
+    userMessages = [{ role: "user", content: "(start)" }];
+  }
   return {
     system: INTAKE_SYSTEM_PROMPT,
     messages: userMessages,

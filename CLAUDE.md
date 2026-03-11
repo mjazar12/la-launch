@@ -1,22 +1,26 @@
 # LA Launch — Local Business Plan Generator
 
 ## What This Is
-A lightweight Next.js app for a UCLA Anderson class final project. A novice entrepreneur answers ~8 questions, we call the Claude API with hardcoded LA-specific data baked into the prompt, and render a polished business plan report on-screen. That's it.
+A lightweight Next.js app for a UCLA Anderson class final project. A novice entrepreneur goes through a conversational AI intake, we call the Claude API through a 4-stage streaming pipeline with hardcoded LA-specific data baked into the prompts, and render a polished business plan report on-screen. That's it.
 
-## Architecture — 3 Files, No More
+## Architecture — 5 Key Files
 ```
 app/
-  page.tsx          # Everything: landing → questionnaire → report
-  api/generate/route.ts   # Single API route, calls Claude, returns JSON
-  lib/prompt.ts     # System prompt template with all LA data baked in
+  page.tsx                    # UI: landing → intake (conversational) → questionnaire → report
+  api/
+    generate/route.ts         # 4-stage SSE pipeline (Quality Gate, Market Scan, Business Plan, Pitch Deck)
+    intake/route.ts           # Conversational intake — single call, returns message + optional FormData
+  lib/
+    prompt.ts                 # FormData interface + 4 prompt builders + LA data
+    intakePrompt.ts           # INTAKE_SYSTEM_PROMPT + buildIntakeMessages()
 ```
 
-No database. No auth. No separate data files. The LA research (neighborhood rents, funding programs, permits, demographics) is hardcoded directly into the system prompt in `lib/prompt.ts`.
+No database. No auth. No separate data files. The LA research (neighborhood rents, funding programs, permits, demographics) is hardcoded directly into the prompt builders in `lib/prompt.ts`.
 
 ## Tech Stack
 - **Next.js 14** (App Router)
 - **Tailwind CSS** (styling, all inline)
-- **Claude API** (`claude-sonnet-4-5-20250929`) — one call, structured JSON response
+- **Claude API** (`claude-haiku-4-5-20251001`) — 4-stage SSE streaming pipeline for report generation; single call for intake
 - **Framer Motion** (`motion`) for animations
 - No other dependencies unless absolutely necessary
 
@@ -27,95 +31,82 @@ The GUI is the wow factor. The aesthetic is **dark, cinematic, art-deco-meets-mo
 - **Dark theme only.** Background: near-black (#0A0A0A). Cards/sections: charcoal (#141414) with subtle warm borders.
 - **Typography:** Use `Playfair Display` (serif, for headings — elegant, editorial) paired with `DM Sans` (body — clean, modern). Import from Google Fonts.
 - **Gold accent color:** #D4A853 for highlights, progress indicators, section dividers, key metrics. Use sparingly — it should feel luxurious, not gaudy.
-- **Animations:** Every state transition (landing → questionnaire → generating → report) should animate smoothly. Use staggered fade-up reveals for report sections. The generating state should have a cinematic loading sequence (pulsing gold ring or animated city skyline silhouette).
+- **Animations:** Every state transition (landing → intake → questionnaire → generating → report) should animate smoothly. Use staggered fade-up reveals for report sections. The generating state should have a cinematic loading sequence (pulsing gold ring or animated city skyline silhouette).
 - **Layout:** Full viewport height. Centered content, generous whitespace. Max-width ~800px for readability. No sidebars, no navbars — immersive single-page flow.
 - **Cards:** Subtle glassmorphism (backdrop-blur + low-opacity warm borders). Soft box-shadows.
 - **Key metrics in the report** (e.g., estimated startup cost, monthly rent range) should render as large, highlighted stat callouts — gold text, oversized numbers.
 
-### The Three States of `page.tsx`
+### The App States of `page.tsx`
 
 **State 1 — Landing**
 A dramatic hero with the app name "LA Launch", a one-line tagline ("Your AI-powered LA business plan in 60 seconds"), and a single gold CTA button. Subtle animated gradient or grain texture in the background. Keep it cinematic and minimal.
 
-**State 2 — Questionnaire**
-One question at a time, full screen, large text. Progress bar at top (gold). Smooth slide transitions between questions. Input fields are minimal and large. Options for multiple-choice questions rendered as selectable cards, not dropdowns. Feel: calm, guided, premium. Think typeform-style.
+**State 2 — Intake (Conversational)**
+Claude conducts a 5–8 turn conversational exchange to collect all 16 FormData fields. Chat-style UI. When complete, transitions to the generating state automatically.
 
-**State 3 — Report**
-Sections fade in one by one with staggered delays as the user scrolls or as they load. Each section is a card. Key financial figures are hero-sized stat blocks. Include a subtle "Powered by Claude + LA Launch" footer. Add a "Start Over" button at the bottom.
+**State 3 — Generating**
+A centered animated loader showing exactly 4 stage progress indicators cycling through contextual messages: Quality Gate → Market Scan → Business Plan → Pitch Deck.
 
-Between State 2 and 3, show a **generating state** — a centered animated loader with a message like "Analyzing LA market data..." that cycles through 3-4 contextual messages.
+**State 4 — Report**
+Sections fade in one by one with staggered delays. Each section is a card. Key financial figures are hero-sized stat blocks. Include a subtle "Powered by Claude + LA Launch" footer. Add a "Start Over" button at the bottom.
 
-## Questionnaire Fields
-Collect these from the user (one per screen):
+## FormData Interface (16 Fields)
 
-1. **Business name** — text input
-2. **Industry** — selectable cards: Restaurant/Food, Retail, Professional Services, Health & Wellness, Creative/Media, Tech/Software, Other (text input)
-3. **Business model** — cards: Physical storefront, Online only, Hybrid (both), Mobile/Pop-up
-4. **Preferred neighborhood(s)** — multi-select cards: Downtown LA, Silver Lake/Echo Park, Santa Monica, Venice, Hollywood, Koreatown, Arts District, Culver City, Pasadena, Other
-5. **Startup budget** — cards: Under $25K, $25K–$75K, $75K–$150K, $150K–$500K, $500K+
-6. **Funding situation** — cards: Self-funded, Seeking loans, Seeking investors, Need to explore options
-7. **Target customers** — cards: Local residents, Tourists/visitors, Other businesses (B2B), Online/national audience
-8. **Experience level** — cards: First-time founder, Some business experience, Serial entrepreneur
-
-## API Route (`/api/generate/route.ts`)
-
-- Accepts POST with the form data as JSON body
-- Constructs the prompt by calling the template in `lib/prompt.ts` with the form data
-- Calls Claude API (`claude-sonnet-4-5-20250929`, max_tokens: 4096)
-- The prompt must instruct Claude to respond with **ONLY valid JSON**, no markdown fences, no preamble
-- Parse the JSON response and return it
-- Handle errors gracefully (return a 500 with message)
-
-### Response JSON Schema
-The Claude API must return exactly this shape:
-```json
-{
-  "businessName": "string",
-  "executiveSummary": "string — EXACTLY 3 paragraphs separated by \\n\\n. Paragraph 1: vision and opportunity. Paragraph 2: strategy and differentiation. Paragraph 3: risks and path forward.",
-  "marketAnalysis": {
-    "overview": "string",
-    "targetDemographic": "string",
-    "competitiveLandscape": "string",
-    "localInsights": "string (LA-specific)"
-  },
-  "locationStrategy": {
-    "recommendedAreas": "string",
-    "estimatedMonthlyRent": "string (dollar range)",
-    "footTrafficNotes": "string",
-    "proximityAdvantage": "string"
-  },
-  "financialProjections": {
-    "estimatedStartupCosts": "string (dollar range)",
-    "monthlyOperatingCosts": "string (dollar range)",
-    "revenueProjection": "string",
-    "breakEvenTimeline": "string"
-  },
-  "fundingOptions": [
-    {
-      "name": "string",
-      "description": "string",
-      "amount": "string",
-      "fit": "string (why it's relevant)"
-    }
-  ],
-  "permits": [
-    {
-      "name": "string",
-      "description": "string",
-      "estimatedCost": "string",
-      "timeline": "string"
-    }
-  ],
-  "nextSteps": ["string", "string", "string", "string", "string"],
-  "riskFactors": ["string", "string", "string"]
+```typescript
+interface FormData {
+  businessName: string;
+  industry: string;
+  businessStage: string;
+  businessModel: string;
+  neighborhoods: string[];
+  offerings: string;
+  differentiation: string;
+  pricing: string;
+  targetCustomers: string;
+  customerPersona: string;
+  budget: string;
+  funding: string;
+  staffingPlan: string;
+  spaceNeeds: string;
+  launchTimeline: string;
+  experienceLevel: string;
 }
 ```
 
-## System Prompt (`lib/prompt.ts`)
+## Intake Route (`/api/intake/route.ts`)
 
-This is a single exported function that takes the form data and returns the full prompt string. The LA data is hardcoded directly in here. Include at minimum:
+- Accepts `POST { messages }` array (conversation history)
+- Claude conducts a 5–8 turn conversational exchange to collect all 16 FormData fields
+- Model: `claude-haiku-4-5-20251001`, max_tokens: 512
+- When all fields are collected, appends `EXTRACTED_FORM_DATA:{...}` as the last line of the response
+- Backend parses the marker to extract FormData and returns `{ message: string, formData: object | null }`
+- Frontend receives `formData` and automatically calls `/api/generate` to start the pipeline
 
-### LA Neighborhood Data (bake into prompt)
+## Generate Route (`/api/generate/route.ts`)
+
+- Accepts `POST` with the full `FormData` as JSON body
+- Returns a **Server-Sent Events (SSE)** stream
+- Executes a **4-stage pipeline**, emitting progress events between stages:
+  1. **Quality Gate** — assesses business idea readiness
+  2. **Market Scan** — parallel market research (runs after Quality Gate)
+  3. **Business Plan** — full narrative plan
+  4. **Pitch Deck** — 8-slide deck
+- Each stage calls `claude-haiku-4-5-20251001` with its respective prompt builder
+- Streams stage results as JSON events to the frontend
+- Handle errors gracefully (emit error event, close stream)
+
+## Prompt Builders (`lib/prompt.ts`)
+
+Four exported functions, each taking `FormData` and returning a prompt string:
+
+- `buildQualityGatePrompt(formData)`
+- `buildMarketScanPrompt(formData)`
+- `buildBusinessPlanPrompt(formData)`
+- `buildPitchDeckPrompt(formData)`
+
+The LA data (neighborhood rents, funding programs, permit info) is hardcoded directly in these builders.
+
+### LA Neighborhood Data (baked into prompts)
 - **Downtown LA:** Commercial rent $2.50-5.00/sqft, high foot traffic, young professionals, rapid gentrification, good transit access
 - **Silver Lake/Echo Park:** Rent $3.00-5.50/sqft, trendy/artsy demographic, strong local loyalty, competitive food scene
 - **Santa Monica:** Rent $4.00-8.00/sqft, tourist-heavy, affluent, strict permitting, high visibility
@@ -126,7 +117,7 @@ This is a single exported function that takes the form data and returns the full
 - **Culver City:** Rent $3.00-5.50/sqft, tech workers (Amazon, Apple nearby), family-friendly, growing restaurant scene
 - **Pasadena:** Rent $2.50-5.00/sqft, established community, Old Town foot traffic, less transient than Westside
 
-### LA Funding Programs (bake into prompt)
+### LA Funding Programs (baked into prompts)
 - **Kiva LA:** 0% interest microloans up to $15K, no credit score minimum
 - **LISC LA:** Small business loans $50K-$250K for underserved communities
 - **LA County CDBG:** Grants for businesses in low-to-moderate income areas
@@ -135,7 +126,7 @@ This is a single exported function that takes the form data and returns the full
 - **Cal OSBA Grants:** California small business grants, varies by program cycle
 - **Local CDFI lenders:** Pacific Asian Consortium, Vermont Slauson EDC, etc.
 
-### LA Permit Info (bake into prompt)
+### LA Permit Info (baked into prompts)
 - Business Tax Registration Certificate (all businesses, ~$50-100)
 - Seller's Permit (retail/food, free from CDTFA)
 - Health Permit (food businesses, $500-1000+, LA County Dept of Public Health)
@@ -144,14 +135,108 @@ This is a single exported function that takes the form data and returns the full
 - Sign permits (City of LA Dept of Building and Safety)
 - Home Occupation Permit (home-based businesses, ~$100)
 
-### Prompt Instructions
-Tell Claude to:
-- Be specific and quantitative — dollar ranges, timelines, real program names
-- Tailor everything to the user's stated budget, industry, and neighborhood
-- Write in a professional but accessible tone (the user may be a first-timer)
-- Be honest about challenges and risks, not just optimistic
-- Return ONLY the JSON object, no markdown fences, no explanation text
-- If the user selected "Other" for neighborhood, give general LA-wide advice
+## Response JSON Schemas
+
+### Stage 1 — Quality Gate
+```json
+{
+  "readinessScore": "X/10 — [summary]",
+  "topGaps": ["gap1", "gap2", "gap3", "gap4", "gap5"],
+  "unreliableSectionsWarning": "string"
+}
+```
+
+### Stage 2 — Market Scan
+```json
+{
+  "executiveSummary": ["bullet1", "bullet2", "bullet3"],
+  "customerAndDemand": {
+    "personas": "string",
+    "demandDrivers": "string",
+    "willingnessToPay": "string"
+  },
+  "competitiveLandscape": {
+    "directCompetitors": "string",
+    "whitespaceOpportunities": "string"
+  },
+  "locationAnalysis": {
+    "recommendedAreas": "string",
+    "estimatedMonthlyRent": "string",
+    "footTrafficNotes": "string",
+    "proximityAdvantage": "string"
+  },
+  "feasibilityScorecard": {
+    "demand": "1-5",
+    "competition": "1-5",
+    "opsComplexity": "1-5",
+    "capitalIntensity": "1-5",
+    "regulatoryRisk": "1-5",
+    "timelineRealism": "1-5",
+    "scorecardNotes": "string"
+  },
+  "next5Actions": ["action1", "action2", "action3", "action4", "action5"]
+}
+```
+
+### Stage 3 — Business Plan
+```json
+{
+  "executiveSummary": "EXACTLY 3 paragraphs separated by \\n\\n. Paragraph 1: vision/opportunity. Paragraph 2: strategy/differentiation. Paragraph 3: risks/path forward.",
+  "productService": {
+    "offerings": "string",
+    "pricingLogic": "string",
+    "differentiation": "string"
+  },
+  "goToMarket": {
+    "channels": "string",
+    "launchPlan": "string",
+    "retention": "string"
+  },
+  "operationsPlan": {
+    "location": "string",
+    "staffing": "string",
+    "workflow": "string"
+  },
+  "milestones": {
+    "days0to30": ["string", "string"],
+    "days31to90": ["string", "string"],
+    "days91to180": ["string", "string"]
+  },
+  "risksAndMitigations": [
+    { "risk": "string", "trigger": "string", "response": "string" }
+  ],
+  "fundingOptions": [
+    { "name": "string", "description": "string", "amount": "string", "fit": "string" }
+  ],
+  "permits": [
+    { "name": "string", "description": "string", "estimatedCost": "string", "timeline": "string" }
+  ],
+  "nextSteps": ["string", "string", "string"],
+  "riskFactors": ["string", "string", "string"]
+}
+```
+
+### Stage 4 — Pitch Deck (8 slides)
+```json
+{
+  "slides": [
+    {
+      "slideNumber": "1-8",
+      "title": "string",
+      "bullets": ["string", "string", "string"],
+      "speakerNotes": "string"
+    }
+  ]
+}
+```
+
+Slide order: Vision, Problem, Solution, Customer, Market, Competition, Business Model, Go-to-Market.
+
+## Intake Prompt (`lib/intakePrompt.ts`)
+
+Exports:
+- `INTAKE_SYSTEM_PROMPT` — system prompt for the conversational intake agent
+- `buildIntakeMessages(messages)` — formats the conversation history for the Claude API call
 
 ## Code Style
 - TypeScript strict mode
@@ -173,16 +258,14 @@ Tell Claude to:
 ## Testing Checklist (Run After Every Major Change)
 After completing any feature or bug fix, run through this checklist before moving on:
 
-1. Start the dev server (`npm run dev`) and confirm no build errors
-2. Walk through the full flow: Landing → click CTA → complete all 8 questionnaire steps → submit → wait for report
-3. Verify the API response: add a `console.log` of the raw LLM response in `/api/generate/route.ts` and confirm it's valid JSON with all expected fields
+1. `npm run dev` — confirm no build errors
+2. Full flow: Landing → intake chat → complete all questions → submit → wait for report
+3. Confirm exactly 4 stage progress indicators appear: Quality Gate, Market Scan, Business Plan, Pitch Deck
 4. Check that every report section renders with real content (no "undefined", no truncated text, no missing sections)
-5. Confirm Executive Summary shows **3 paragraphs** — first paragraph should describe vision/opportunity, not start with "However"
-6. Test the "Other" write-in option on at least one question — confirm the typed value appears in the generated report
-7. Test "Download Report" button — browser should immediately download a `.html` file (no print dialog)
-8. Test "Export to PPTX" button — file downloads with correct content
-9. Test the "Start Over" button — confirm it resets to the landing page cleanly
-10. Check browser console for any errors or warnings
+5. Executive Summary: exactly 3 paragraphs, first paragraph does NOT start with "However"
+6. "Download Report" button: downloads `.html` file immediately (no print dialog); HTML must NOT contain a Financial Model section; Pitch Deck labeled "4. Pitch Deck"
+7. "Start Over" button: resets cleanly to landing page
+8. Check browser console for errors or warnings
 
 If any step fails, fix it before moving to the next task.
 

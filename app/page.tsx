@@ -50,15 +50,7 @@ interface ReportData {
   businessName: string;
   qualityGate: {
     readinessScore: string;
-    missingInputs: {
-      offer: string[];
-      customer: string[];
-      location: string[];
-      ops: string[];
-      financials: string[];
-      risk: string[];
-    };
-    topSevenQuestions: string[];
+    topGaps: string[];
     unreliableSectionsWarning: string;
   };
   marketScan: {
@@ -66,12 +58,10 @@ interface ReportData {
     customerAndDemand: {
       personas: string;
       demandDrivers: string;
-      seasonality: string;
       willingnessToPay: string;
     };
     competitiveLandscape: {
       directCompetitors: string;
-      substitutes: string;
       whitespaceOpportunities: string;
     };
     locationAnalysis: {
@@ -79,15 +69,6 @@ interface ReportData {
       estimatedMonthlyRent: string;
       footTrafficNotes: string;
       proximityAdvantage: string;
-    };
-    costsAndUnitEconomics: {
-      majorCostBuckets: string;
-      breakevenEquation: string;
-      assumptions: string;
-    };
-    regulatoryAndPermits: {
-      applicable: string;
-      toVerifyNext: string;
     };
     feasibilityScorecard: {
       demand: number;
@@ -98,17 +79,15 @@ interface ReportData {
       timelineRealism: number;
       scorecardNotes: string;
     };
-    next2WeeksActions: string[];
+    next5Actions: string[];
   };
   businessPlan: {
     executiveSummary: string;
-    companyAndMission: string;
     productService: {
       offerings: string;
       pricingLogic: string;
       differentiation: string;
     };
-    marketAnalysis: string;
     goToMarket: {
       channels: string;
       launchPlan: string;
@@ -117,40 +96,14 @@ interface ReportData {
     operationsPlan: {
       location: string;
       staffing: string;
-      vendors: string;
       workflow: string;
     };
-    regulatoryPlan: string;
     milestones: {
       days0to30: string | string[];
       days31to90: string | string[];
       days91to180: string | string[];
     };
     risksAndMitigations: Array<{ risk: string; trigger: string; response: string }>;
-    financialSummary: string;
-    assumptions: string;
-  };
-  financialModel: {
-    modelOverview: string[];
-    inputsTable: Array<{ variable: string; definition: string; example: string; howToEstimate: string }>;
-    monthlyPnL: Array<{ month: number; revenue: number; cogs: number; grossProfit: number; opex: number; ebitda: number }>;
-    cashRunway: Array<{ month: number; startingCash: number; monthlyNetBurn?: number; startupCostDeploy?: number; endingCash: number }>;
-    breakevenAnalysis: {
-      formula: string;
-      drivers: string;
-      estimatedBreakevenMonth: string;
-    };
-    scenarios: {
-      base: ScenarioObj;
-      conservative: ScenarioObj;
-      aggressive: ScenarioObj;
-    };
-    opexBreakdown: { rent: number; labor: number; marketing: number; utilities: number; other: number };
-    keyAssumptions: { cogsPercent: number; fixedMonthlyOpex: number; month1Revenue: number; revenueGrowthRatePercent: number };
-    summaryStats: { cashAtMonth24: number; monthsToBreakeven: number; totalStartupCost: number; startingOperatingCash: number };
-    founderInstructions: string;
-    dataPointsToCollect: string[];
-    validationWarnings?: string[];
   };
   pitchDeck: {
     slides: Array<{
@@ -263,7 +216,6 @@ const PIPELINE_STAGE_NAMES = [
   "Input Quality Gate",
   "LA Market Scan & Feasibility",
   "Business Plan",
-  "Financial Model",
   "Pitch Deck",
 ];
 
@@ -542,19 +494,15 @@ export default function Home() {
   );
   const [pipelineMsgIdx, setPipelineMsgIdx] = useState(0);
   const [isPptxExporting, setIsPptxExporting] = useState(false);
-  const [financialTab, setFinancialTab] = useState<'pnl' | 'cashRunway' | 'scenarios' | 'assumptions'>('pnl');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatStreaming, setChatStreaming] = useState(false);
   const [extractedFormData, setExtractedFormData] = useState<FormData | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
-  const [showFullPnL, setShowFullPnL] = useState(false);
-  const [showFullCashRunway, setShowFullCashRunway] = useState(false);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     "quality-gate": true,
     "market-scan": false,
     "business-plan": false,
-    "financial-model": false,
     "pitch-deck": false,
     "funding": false,
     "permits": false,
@@ -673,9 +621,14 @@ export default function Home() {
         body: JSON.stringify({ messages: newMessages }),
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = await res.text();
+        console.error(`[intake] HTTP ${res.status}:`, body);
+        throw new Error(`HTTP ${res.status}`);
+      }
 
       const { message, formData: fd } = await res.json();
+      if (!message) throw new Error("Empty response from intake API");
 
       setChatMessages((prev) => [
         ...prev.slice(0, -1),
@@ -1453,13 +1406,13 @@ export default function Home() {
 
         {/* TOC (desktop only) */}
         <div className="hidden xl:block fixed left-6 top-1/3 space-y-2 z-40">
-          {["quality-gate", "market-scan", "business-plan", "financial-model", "pitch-deck"].map((id, i) => (
+          {["quality-gate", "market-scan", "business-plan", "pitch-deck"].map((id, i) => (
             <button
               key={id}
               onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" })}
               className="block font-dm text-xs text-white/30 hover:text-gold transition-colors text-left"
             >
-              {["Quality Gate", "Market Scan", "Business Plan", "Financial Model", "Pitch Deck"][i]}
+              {["Quality Gate", "Market Scan", "Business Plan", "Pitch Deck"][i]}
             </button>
           ))}
         </div>
@@ -1472,7 +1425,6 @@ export default function Home() {
               { id: "quality-gate", label: "Quality Gate" },
               { id: "market-scan", label: "Market Scan" },
               { id: "business-plan", label: "Business Plan" },
-              { id: "financial-model", label: "Financial Model" },
               { id: "pitch-deck", label: "Pitch Deck" },
               { id: "funding", label: "Funding" },
               { id: "permits", label: "Permits" },
@@ -1512,39 +1464,19 @@ export default function Home() {
                 </div>
               )}
 
-              {report.qualityGate?.topSevenQuestions?.length > 0 && (
+              {report.qualityGate?.topGaps?.length > 0 && (
                 <div>
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">
-                    Top Questions to Answer Next
+                    Top Gaps to Address
                   </div>
                   <ol className="space-y-3">
-                    {report.qualityGate.topSevenQuestions.map((q, i) => (
+                    {report.qualityGate.topGaps.map((gap, i) => (
                       <li key={i} className="flex gap-3">
                         <span className="font-playfair text-lg text-gold/40 w-6 shrink-0">{i + 1}</span>
-                        <p className="font-dm text-sm text-white/70 leading-relaxed pt-0.5">{q}</p>
+                        <p className="font-dm text-sm text-white/70 leading-relaxed pt-0.5">{gap}</p>
                       </li>
                     ))}
                   </ol>
-                </div>
-              )}
-
-              {/* Gaps identified — expanded card */}
-              {report.qualityGate?.missingInputs &&
-                Object.entries(report.qualityGate.missingInputs).some(([, v]) => Array.isArray(v) && v.length > 0) && (
-                <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6 mt-4">
-                  <h3 className="font-dm text-xs text-amber-400/70 uppercase tracking-widest mb-4">
-                    Before You Launch — Gaps to Address
-                  </h3>
-                  {Object.entries(report.qualityGate.missingInputs).map(([category, items]) =>
-                    Array.isArray(items) && items.length > 0 && (
-                      <div key={category} className="mb-3">
-                        <p className="font-dm text-xs text-amber-400/50 uppercase tracking-wider mb-1">{category}</p>
-                        {(items as string[]).map((item: string, i: number) => (
-                          <p key={i} className="font-dm text-sm text-amber-200/80 pl-3">· {item}</p>
-                        ))}
-                      </div>
-                    )
-                  )}
                 </div>
               )}
             </div>
@@ -1619,31 +1551,12 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Costs */}
-              {report.marketScan?.costsAndUnitEconomics && (
-                <div className="space-y-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Costs & Unit Economics</div>
-                  {Object.entries(report.marketScan.costsAndUnitEconomics).map(([k, v]) => (
-                    <LabeledCard key={k} label={k.replace(/([A-Z])/g, " $1").trim()} value={v} />
-                  ))}
-                </div>
-              )}
-
-              {/* Regulatory */}
-              {report.marketScan?.regulatoryAndPermits && (
-                <div className="space-y-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Regulatory & Permits</div>
-                  <LabeledCard label="Applicable" value={report.marketScan.regulatoryAndPermits.applicable} />
-                  <LabeledCard label="To Verify Next" value={report.marketScan.regulatoryAndPermits.toVerifyNext} />
-                </div>
-              )}
-
-              {/* Next 2 weeks */}
-              {report.marketScan?.next2WeeksActions?.length > 0 && (
+              {/* Next 5 actions */}
+              {report.marketScan?.next5Actions?.length > 0 && (
                 <div>
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Next 2 Weeks: Action Plan</div>
+                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Next 5 Actions</div>
                   <ol className="space-y-3">
-                    {report.marketScan.next2WeeksActions.map((action, i) => (
+                    {report.marketScan.next5Actions.map((action, i) => (
                       <li key={i} className="flex gap-3">
                         <span className="font-playfair text-lg text-gold/40 w-6 shrink-0">{i + 1}</span>
                         <p className="font-dm text-sm text-white/70 leading-relaxed pt-0.5">{action}</p>
@@ -1673,11 +1586,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Company & mission */}
-              {report.businessPlan?.companyAndMission && (
-                <LabeledCard label="Company & Mission" value={report.businessPlan.companyAndMission} />
-              )}
-
               {/* Product/service */}
               {report.businessPlan?.productService && (
                 <div className="space-y-4">
@@ -1686,11 +1594,6 @@ export default function Home() {
                   <LabeledCard label="Pricing Logic" value={report.businessPlan.productService.pricingLogic} />
                   <LabeledCard label="Differentiation" value={report.businessPlan.productService.differentiation} />
                 </div>
-              )}
-
-              {/* Market analysis */}
-              {report.businessPlan?.marketAnalysis && (
-                <LabeledCard label="Market Analysis" value={report.businessPlan.marketAnalysis} />
               )}
 
               {/* Go to market */}
@@ -1709,14 +1612,8 @@ export default function Home() {
                   <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Operations Plan</div>
                   <LabeledCard label="Location" value={report.businessPlan.operationsPlan.location} />
                   <LabeledCard label="Staffing" value={report.businessPlan.operationsPlan.staffing} />
-                  <LabeledCard label="Vendors" value={report.businessPlan.operationsPlan.vendors} />
                   <LabeledCard label="Workflow" value={report.businessPlan.operationsPlan.workflow} />
                 </div>
-              )}
-
-              {/* Regulatory plan */}
-              {report.businessPlan?.regulatoryPlan && (
-                <LabeledCard label="Regulatory Plan" value={report.businessPlan.regulatoryPlan} />
               )}
 
               {/* Milestones — horizontal timeline */}
@@ -1776,367 +1673,10 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Financial summary */}
-              {report.businessPlan?.financialSummary && (
-                <LabeledCard label="Financial Summary" value={report.businessPlan.financialSummary} />
-              )}
-
-              {/* Assumptions */}
-              {report.businessPlan?.assumptions && (
-                <LabeledCard label="Assumptions" value={report.businessPlan.assumptions} />
-              )}
             </div>
           </SectionCard>
 
-          {/* Section 4: Financial Model */}
-          <SectionCard title="Financial Model" delay={0.15} id="financial-model" open={openSections["financial-model"]} onToggle={() => toggleSection("financial-model")}>
-            <div className="space-y-6">
-
-              {/* Always-visible: keyAssumptions callout */}
-              {report.financialModel?.keyAssumptions && (
-                <div className="bg-gold/5 border border-gold/20 rounded-xl p-4">
-                  <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Key Assumptions</div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {[
-                      { label: "COGS %", value: `${Number(report.financialModel.keyAssumptions.cogsPercent)}%` },
-                      { label: "Fixed OpEx / mo", value: `$${Number(report.financialModel.keyAssumptions.fixedMonthlyOpex).toLocaleString()}` },
-                      { label: "Month 1 Revenue", value: `$${Number(report.financialModel.keyAssumptions.month1Revenue).toLocaleString()}` },
-                      { label: "Growth Rate", value: `${Number(report.financialModel.keyAssumptions.revenueGrowthRatePercent)}% / mo` },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="text-center">
-                        <div className="font-playfair text-xl text-gold leading-tight">{value}</div>
-                        <div className="font-dm text-xs text-white/40 uppercase tracking-widest mt-1">{label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Always-visible: Breakeven + model overview */}
-              {report.financialModel?.breakevenAnalysis && (
-                <div className="space-y-4">
-                  <StatBlock label="Estimated Breakeven Month" value={report.financialModel.breakevenAnalysis.estimatedBreakevenMonth} />
-                  <LabeledCard label="Formula" value={report.financialModel.breakevenAnalysis.formula} />
-                  <LabeledCard label="Key Drivers" value={report.financialModel.breakevenAnalysis.drivers} />
-                </div>
-              )}
-
-              {report.financialModel?.modelOverview?.length > 0 && (
-                <ul className="space-y-2">
-                  {report.financialModel.modelOverview.map((bullet, i) => (
-                    <li key={i} className="flex gap-2">
-                      <span className="text-gold/30 shrink-0 mt-1">·</span>
-                      <p className="font-dm text-sm text-white/70 leading-relaxed">{bullet}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {/* Tab bar */}
-              <div className="border-b border-white/10 flex gap-6">
-                {([
-                  { key: 'pnl', label: 'P&L' },
-                  { key: 'cashRunway', label: 'Cash Runway' },
-                  { key: 'scenarios', label: 'Scenarios' },
-                  { key: 'assumptions', label: 'Assumptions' },
-                ] as { key: typeof financialTab; label: string }[]).map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => setFinancialTab(key)}
-                    className={`pb-3 font-dm text-xs uppercase tracking-widest transition-colors border-b-2 -mb-px ${
-                      financialTab === key
-                        ? 'border-gold text-gold'
-                        : 'border-transparent text-white/40 hover:text-white/60'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {/* P&L Tab */}
-              {financialTab === 'pnl' && report.financialModel?.monthlyPnL?.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Monthly P&L</div>
-                    <button
-                      onClick={() => setShowFullPnL(v => !v)}
-                      className="font-dm text-xs text-white/40 hover:text-gold transition-colors border border-white/10 hover:border-gold/30 rounded-full px-3 py-1"
-                    >
-                      {showFullPnL ? 'Summary View' : 'All 24 Months'}
-                    </button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[600px]">
-                      <thead>
-                        <tr className="border-b border-white/10">
-                          {["Month", "Revenue", "COGS", "Gross Profit", "OpEx", "EBITDA"].map((h) => (
-                            <th key={h} className="text-left font-dm text-gold/60 pb-2 pr-3 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.financialModel.monthlyPnL
-                          .filter(r => showFullPnL || [1, 3, 6, 12, 18, 24].includes(r.month))
-                          .map((row) => {
-                            const isHighlight = row.month === 1 || row.month === 12 || row.month === 24;
-                            return (
-                              <tr key={row.month} className={`border-b border-white/5 ${isHighlight ? "bg-gold/5" : ""}`}>
-                                <td className={`py-2 pr-3 font-dm font-semibold ${isHighlight ? "text-gold" : "text-white/50"}`}>
-                                  {row.month}
-                                </td>
-                                <td className={`py-2 pr-3 font-dm ${isHighlight ? "text-gold" : "text-white/60"}`}>${Number(row.revenue).toLocaleString()}</td>
-                                <td className={`py-2 pr-3 font-dm ${isHighlight ? "text-gold" : "text-white/60"}`}>${Number(row.cogs).toLocaleString()}</td>
-                                <td className={`py-2 pr-3 font-dm ${isHighlight ? "text-gold" : "text-white/60"}`}>${Number(row.grossProfit).toLocaleString()}</td>
-                                <td className={`py-2 pr-3 font-dm ${isHighlight ? "text-gold" : "text-white/60"}`}>${Number(row.opex).toLocaleString()}</td>
-                                <td className={`py-2 font-dm ${Number(row.ebitda) >= 0 ? (isHighlight ? "text-gold" : "text-green-400/70") : (isHighlight ? "text-gold" : "text-red-400/60")}`}>${Number(row.ebitda).toLocaleString()}</td>
-                              </tr>
-                            );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Cash Runway Tab */}
-              {financialTab === 'cashRunway' && report.financialModel?.cashRunway?.length > 0 && (
-                <div>
-                  {/* Summary stats */}
-                  {report.financialModel?.summaryStats && (
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                      <StatBlock
-                        label="Cash at Month 24"
-                        value={`$${Number(report.financialModel.summaryStats.cashAtMonth24).toLocaleString()}`}
-                      />
-                      <StatBlock
-                        label="Months to Breakeven"
-                        value={`Mo. ${Number(report.financialModel.summaryStats.monthsToBreakeven)}`}
-                      />
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="font-dm text-xs text-gold/60 uppercase tracking-widest">Cash Runway</div>
-                    <button
-                      onClick={() => setShowFullCashRunway(v => !v)}
-                      className="font-dm text-xs text-white/40 hover:text-gold transition-colors border border-white/10 hover:border-gold/30 rounded-full px-3 py-1"
-                    >
-                      {showFullCashRunway ? 'Summary View' : 'All 25 Rows'}
-                    </button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[560px]">
-                      <thead>
-                        <tr className="border-b border-white/10">
-                          {["Month", "Starting Cash", "Net Burn", "Ending Cash"].map((h) => (
-                            <th key={h} className="text-left font-dm text-gold/60 pb-2 pr-3 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.financialModel.cashRunway
-                          .filter(r => showFullCashRunway || r.month === 0 || [1, 3, 6, 12, 18, 24].includes(r.month))
-                          .map((row) => {
-                            const isMonth0 = row.month === 0;
-                            const isHighlight = row.month === 1 || row.month === 12 || row.month === 24;
-                            return (
-                              <tr
-                                key={row.month}
-                                className={`border-b border-white/5 ${isMonth0 ? "bg-amber-500/5" : isHighlight ? "bg-gold/5" : ""}`}
-                              >
-                                <td className={`py-2 pr-3 font-dm font-semibold ${isMonth0 ? "text-amber-400" : isHighlight ? "text-gold" : "text-white/50"}`}>
-                                  {isMonth0 ? "Pre-Opening" : row.month}
-                                </td>
-                                <td className={`py-2 pr-3 font-dm ${isMonth0 ? "text-amber-200/70" : isHighlight ? "text-gold" : "text-white/60"}`}>
-                                  ${Number(row.startingCash).toLocaleString()}
-                                </td>
-                                <td className={`py-2 pr-3 font-dm ${isMonth0 ? "text-amber-200/70" : isHighlight ? "text-gold" : "text-white/60"}`}>
-                                  {isMonth0
-                                    ? `$${Number(row.startupCostDeploy ?? 0).toLocaleString()}`
-                                    : `$${Number(row.monthlyNetBurn ?? 0).toLocaleString()}`}
-                                </td>
-                                <td className={`py-2 font-dm ${isMonth0 ? "text-amber-200/70" : isHighlight ? "text-gold" : "text-white/60"}`}>
-                                  ${Number(row.endingCash).toLocaleString()}
-                                </td>
-                              </tr>
-                            );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Scenarios Tab */}
-              {financialTab === 'scenarios' && report.financialModel?.scenarios && (() => {
-                const sc = report.financialModel.scenarios;
-                // Handle both old string format and new structured object format
-                const isObj = typeof sc.base === 'object' && sc.base !== null;
-                if (!isObj) {
-                  // Fallback for old string format
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {[
-                        { label: "Conservative", value: sc.conservative as unknown as string },
-                        { label: "Base Case", value: sc.base as unknown as string, isBase: true },
-                        { label: "Aggressive", value: sc.aggressive as unknown as string },
-                      ].map(({ label, value, isBase }) => (
-                        <div key={label} className={`rounded-xl p-4 border ${isBase ? "bg-gold/5 border-gold/20" : "bg-noir/60 border-white/10"}`}>
-                          <div className="font-dm text-xs text-gold/70 uppercase tracking-widest mb-2">{label}</div>
-                          <p className="font-dm text-sm text-white/60 leading-relaxed">{value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-                const base = sc.base as ScenarioObj;
-                const cons = sc.conservative as ScenarioObj;
-                const aggr = sc.aggressive as ScenarioObj;
-                return (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[560px]">
-                      <thead>
-                        <tr className="border-b border-white/10">
-                          <th className="text-left font-dm text-gold/60 pb-2 pr-3 uppercase tracking-wider">Metric</th>
-                          <th className="text-left font-dm text-gold/60 pb-2 pr-3 uppercase tracking-wider">Conservative</th>
-                          <th className="text-left font-dm text-gold/60 pb-2 pr-3 uppercase tracking-wider bg-gold/5">Base Case</th>
-                          <th className="text-left font-dm text-gold/60 pb-2 uppercase tracking-wider">Aggressive</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          { label: "Revenue Assumption", cons: cons.revenueAssumption, base: base.revenueAssumption, aggr: aggr.revenueAssumption },
-                          { label: "COGS %", cons: `${cons.cogsPercent}%`, base: `${base.cogsPercent}%`, aggr: `${aggr.cogsPercent}%` },
-                          { label: "Fixed OpEx / month", cons: `$${Number(cons.fixedOpexMonthly).toLocaleString()}`, base: `$${Number(base.fixedOpexMonthly).toLocaleString()}`, aggr: `$${Number(aggr.fixedOpexMonthly).toLocaleString()}` },
-                          { label: "Breakeven Month", cons: `Mo. ${cons.breakevenMonth}`, base: `Mo. ${base.breakevenMonth}`, aggr: `Mo. ${aggr.breakevenMonth}` },
-                          { label: "Year 1 Revenue", cons: `$${Number(cons.yearOneRevenue).toLocaleString()}`, base: `$${Number(base.yearOneRevenue).toLocaleString()}`, aggr: `$${Number(aggr.yearOneRevenue).toLocaleString()}` },
-                        ].map(({ label, cons: c, base: b, aggr: a }) => (
-                          <tr key={label} className="border-b border-white/5">
-                            <td className="py-2 pr-3 font-dm text-white/60 font-semibold align-top">{label}</td>
-                            <td className="py-2 pr-3 font-dm text-white/50 align-top">{c}</td>
-                            <td className="py-2 pr-3 font-dm text-gold/80 align-top bg-gold/5">{b}</td>
-                            <td className="py-2 font-dm text-white/50 align-top">{a}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })()}
-
-              {/* Assumptions Tab */}
-              {financialTab === 'assumptions' && (
-                <div className="space-y-8">
-                  {/* OpEx breakdown proportional bars */}
-                  {report.financialModel?.opexBreakdown && (() => {
-                    const ob = report.financialModel.opexBreakdown;
-                    const total = Object.values(ob).reduce((s, v) => s + Number(v), 0);
-                    return total > 0 ? (
-                      <div>
-                        <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">OpEx Breakdown</div>
-                        <div className="space-y-3">
-                          {[
-                            { label: "Rent", value: ob.rent },
-                            { label: "Labor", value: ob.labor },
-                            { label: "Marketing", value: ob.marketing },
-                            { label: "Utilities", value: ob.utilities },
-                            { label: "Other", value: ob.other },
-                          ].map(({ label, value }) => {
-                            const pct = Math.round((Number(value) / total) * 100);
-                            return (
-                              <div key={label} className="space-y-1">
-                                <div className="flex justify-between items-center">
-                                  <span className="font-dm text-xs text-white/60">{label}</span>
-                                  <span className="font-dm text-xs text-gold">${Number(value).toLocaleString()} · {pct}%</span>
-                                </div>
-                                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                  <motion.div
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${pct}%` }}
-                                    transition={{ duration: 0.8, ease: "easeOut" }}
-                                    className="h-full bg-gold rounded-full"
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : null;
-                  })()}
-
-                  {/* Inputs table */}
-                  {report.financialModel?.inputsTable?.length > 0 && (
-                    <div>
-                      <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Key Model Inputs</div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs min-w-[600px]">
-                          <thead>
-                            <tr className="border-b border-white/10">
-                              {["Variable", "Definition", "Example", "How to Estimate"].map((h) => (
-                                <th key={h} className="text-left font-dm text-gold/60 pb-2 pr-3 uppercase tracking-wider">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {report.financialModel.inputsTable.map((row, i) => (
-                              <tr key={i} className="border-b border-white/5">
-                                <td className="py-2 pr-3 font-dm text-white/80 font-semibold align-top">{row.variable}</td>
-                                <td className="py-2 pr-3 font-dm text-white/60 align-top">{row.definition}</td>
-                                <td className="py-2 pr-3 font-dm text-gold/60 align-top">{row.example}</td>
-                                <td className="py-2 font-dm text-white/50 align-top">{row.howToEstimate}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Data points to collect */}
-                  {report.financialModel?.dataPointsToCollect?.length > 0 && (
-                    <div>
-                      <div className="font-dm text-xs text-gold/60 uppercase tracking-widest mb-3">Data Points to Collect</div>
-                      <ol className="space-y-2">
-                        {report.financialModel.dataPointsToCollect.map((point, i) => (
-                          <li key={i} className="flex gap-3">
-                            <span className="font-playfair text-base text-gold/40 w-5 shrink-0">{i + 1}</span>
-                            <p className="font-dm text-sm text-white/60 leading-relaxed">{point}</p>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-
-                  {/* Founder instructions */}
-                  {report.financialModel?.founderInstructions && (
-                    <div className="border border-amber-500/30 bg-amber-500/5 rounded-xl p-5">
-                      <div className="font-dm text-xs text-amber-400/70 uppercase tracking-widest mb-2">How to Use This Model</div>
-                      <p className="font-dm text-sm text-amber-200/80 leading-relaxed whitespace-pre-line">
-                        {report.financialModel.founderInstructions}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Validation warnings (non-blocking) */}
-              {report.financialModel?.validationWarnings && report.financialModel.validationWarnings.length > 0 && (
-                <details className="group">
-                  <summary className="cursor-pointer font-dm text-xs text-white/30 hover:text-white/50 uppercase tracking-widest list-none flex items-center gap-2">
-                    <span>▸ Model Validation Notes ({report.financialModel.validationWarnings.length})</span>
-                  </summary>
-                  <ul className="mt-3 space-y-1 pl-4">
-                    {report.financialModel.validationWarnings.map((w, i) => (
-                      <li key={i} className="font-dm text-xs text-white/30">{w}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </div>
-          </SectionCard>
-
-          {/* Section 5: Pitch Deck */}
+          {/* Section 4: Pitch Deck */}
           <SectionCard title="Pitch Deck" delay={0.2} id="pitch-deck" open={openSections["pitch-deck"]} onToggle={() => toggleSection("pitch-deck")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {report.pitchDeck?.slides?.map((slide) => (
@@ -2356,7 +1896,6 @@ export default function Home() {
 function generateHTMLReport(report: ReportData): string {
   const safeStr = (s: unknown) => String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const scorecard = report.marketScan?.feasibilityScorecard;
-  const fm = report.financialModel;
   const bp = report.businessPlan;
 
   function renderMilestone(value: string | string[]): string {
@@ -2406,7 +1945,7 @@ function generateHTMLReport(report: ReportData): string {
 <p class="stat">Readiness Score: ${safeStr(report.qualityGate?.readinessScore)}</p>
 ${report.qualityGate?.unreliableSectionsWarning ? `<div class="warning">${safeStr(report.qualityGate.unreliableSectionsWarning)}</div>` : ""}
 <h3>Top Questions to Answer Next</h3>
-<ol>${(report.qualityGate?.topSevenQuestions ?? []).map(q => `<li>${safeStr(q)}</li>`).join("")}</ol>
+<ol>${(report.qualityGate?.topGaps ?? []).map(q => `<li>${safeStr(q)}</li>`).join("")}</ol>
 
 <h2>2. LA Market Scan & Feasibility</h2>
 ${scorecard ? `
@@ -2426,20 +1965,18 @@ ${scorecard ? `
 <h3>Location Analysis</h3>
 <p>${safeStr(report.marketScan?.locationAnalysis?.recommendedAreas)}</p>
 <p class="stat">Est. Monthly Rent: ${safeStr(report.marketScan?.locationAnalysis?.estimatedMonthlyRent)}</p>
-<h3>Next 2 Weeks: Action Plan</h3>
-<ol>${(report.marketScan?.next2WeeksActions ?? []).map(a => `<li>${safeStr(a)}</li>`).join("")}</ol>
+<h3>Next 5 Actions</h3>
+<ol>${(report.marketScan?.next5Actions ?? []).map(a => `<li>${safeStr(a)}</li>`).join("")}</ol>
 
 <h2>3. Business Plan</h2>
 <h3>Executive Summary</h3>
 ${(bp?.executiveSummary ?? "").split(/\n\n+/).filter(p => p.trim()).map(p => `<p>${safeStr(p)}</p>`).join("")}
-<h3>Company & Mission</h3><p>${safeStr(bp?.companyAndMission)}</p>
 ${bp?.productService ? `
 <h3>Product / Service</h3>
 <p><strong>Offerings:</strong> ${safeStr(bp.productService.offerings)}</p>
 <p><strong>Pricing Logic:</strong> ${safeStr(bp.productService.pricingLogic)}</p>
 <p><strong>Differentiation:</strong> ${safeStr(bp.productService.differentiation)}</p>
 ` : ""}
-${bp?.marketAnalysis ? `<h3>Market Analysis</h3><p>${safeStr(bp.marketAnalysis)}</p>` : ""}
 ${bp?.goToMarket ? `
 <h3>Go-to-Market</h3>
 <p><strong>Channels:</strong> ${safeStr(bp.goToMarket.channels)}</p>
@@ -2450,10 +1987,8 @@ ${bp?.operationsPlan ? `
 <h3>Operations Plan</h3>
 <p><strong>Location:</strong> ${safeStr(bp.operationsPlan.location)}</p>
 <p><strong>Staffing:</strong> ${safeStr(bp.operationsPlan.staffing)}</p>
-<p><strong>Vendors:</strong> ${safeStr(bp.operationsPlan.vendors)}</p>
 <p><strong>Workflow:</strong> ${safeStr(bp.operationsPlan.workflow)}</p>
 ` : ""}
-${bp?.regulatoryPlan ? `<h3>Regulatory Plan</h3><p>${safeStr(bp.regulatoryPlan)}</p>` : ""}
 <h3>Milestones</h3>
 <p><strong>Days 0–30:</strong></p>${renderMilestone(bp?.milestones?.days0to30 ?? "")}
 <p><strong>Days 31–90:</strong></p>${renderMilestone(bp?.milestones?.days31to90 ?? "")}
@@ -2463,39 +1998,8 @@ ${bp?.regulatoryPlan ? `<h3>Regulatory Plan</h3><p>${safeStr(bp.regulatoryPlan)}
   <tr><th>Risk</th><th>Trigger</th><th>Response</th></tr>
   ${(bp?.risksAndMitigations ?? []).map(r => `<tr><td>${safeStr(r.risk)}</td><td>${safeStr(r.trigger)}</td><td>${safeStr(r.response)}</td></tr>`).join("")}
 </table>
-${bp?.financialSummary ? `<h3>Financial Summary</h3><p>${safeStr(bp.financialSummary)}</p>` : ""}
-${bp?.assumptions ? `<h3>Assumptions</h3><p>${safeStr(bp.assumptions)}</p>` : ""}
 
-<h2>4. Financial Model</h2>
-<p class="stat">Breakeven: ${safeStr(fm?.breakevenAnalysis?.estimatedBreakevenMonth)}</p>
-${fm?.keyAssumptions ? `
-<div class="assumptions-card">
-  <div class="kpi"><div class="kpi-val">${Number(fm.keyAssumptions.cogsPercent)}%</div><div class="kpi-lbl">COGS %</div></div>
-  <div class="kpi"><div class="kpi-val">$${Number(fm.keyAssumptions.fixedMonthlyOpex).toLocaleString()}</div><div class="kpi-lbl">Fixed OpEx / mo</div></div>
-  <div class="kpi"><div class="kpi-val">$${Number(fm.keyAssumptions.month1Revenue).toLocaleString()}</div><div class="kpi-lbl">Month 1 Revenue</div></div>
-  <div class="kpi"><div class="kpi-val">${Number(fm.keyAssumptions.revenueGrowthRatePercent)}%/mo</div><div class="kpi-lbl">Growth Rate</div></div>
-</div>
-` : ""}
-<h3>Monthly P&L</h3>
-<table>
-  <tr><th>Month</th><th>Revenue</th><th>COGS</th><th>Gross Profit</th><th>OpEx</th><th>EBITDA</th></tr>
-  ${(fm?.monthlyPnL ?? []).map(r => {
-    const hi = r.month === 1 || r.month === 12 || r.month === 24;
-    return `<tr class="${hi ? "highlight" : ""}"><td>${r.month}</td><td>$${Number(r.revenue).toLocaleString()}</td><td>$${Number(r.cogs).toLocaleString()}</td><td>$${Number(r.grossProfit).toLocaleString()}</td><td>$${Number(r.opex).toLocaleString()}</td><td>$${Number(r.ebitda).toLocaleString()}</td></tr>`;
-  }).join("")}
-</table>
-<h3>Cash Runway</h3>
-<table>
-  <tr><th>Month</th><th>Starting Cash</th><th>Net Burn / Startup Deploy</th><th>Ending Cash</th></tr>
-  ${(fm?.cashRunway ?? []).map(r => {
-    const isM0 = r.month === 0;
-    const hi = r.month === 1 || r.month === 12 || r.month === 24;
-    const burnVal = isM0 ? Number(r.startupCostDeploy ?? 0) : Number(r.monthlyNetBurn ?? 0);
-    return `<tr class="${isM0 ? "preopen" : hi ? "highlight" : ""}"><td>${isM0 ? "Pre-Opening" : r.month}</td><td>$${Number(r.startingCash).toLocaleString()}</td><td>$${burnVal.toLocaleString()}</td><td>$${Number(r.endingCash).toLocaleString()}</td></tr>`;
-  }).join("")}
-</table>
-
-<h2>5. Pitch Deck</h2>
+<h2>4. Pitch Deck</h2>
 ${(report.pitchDeck?.slides ?? []).map(slide => `
   <h3>${slide.slideNumber}. ${safeStr(slide.title)}</h3>
   <ul>${slide.bullets.map(b => `<li>${safeStr(b)}</li>`).join("")}</ul>

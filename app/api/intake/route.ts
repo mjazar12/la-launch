@@ -6,19 +6,24 @@ import { buildIntakeMessages } from "@/app/lib/intakePrompt";
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(request: NextRequest) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY not configured" }), { status: 500 });
+  }
+
   const { messages } = await request.json();
   const { system, messages: userMessages } = buildIntakeMessages(messages);
 
   let fullText = "";
   try {
     const response = await client.messages.create({
-      model: "claude-opus-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 512,
       system,
       messages: userMessages as MessageParam[],
     });
     fullText = response.content[0].type === "text" ? response.content[0].text : "";
   } catch (err) {
+    console.error("[intake] Anthropic error:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
     return new Response(JSON.stringify({ error: message }), { status: 500 });
   }
