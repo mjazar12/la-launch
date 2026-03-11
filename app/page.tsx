@@ -38,13 +38,6 @@ interface Permit {
   timeline: string;
 }
 
-interface ScenarioObj {
-  revenueAssumption: string;
-  cogsPercent: number;
-  fixedOpexMonthly: number;
-  breakevenMonth: number;
-  yearOneRevenue: number;
-}
 
 interface ReportData {
   businessName: string;
